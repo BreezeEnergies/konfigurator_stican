@@ -69,7 +69,7 @@ ANIMATION_FILES = [resource_path("loading-snake-io.gif")]
 #     QCoreApplication.instance().installTranslator(translator)
 
 
-APPLICATION_VERSION = "1.1.0"
+APPLICATION_VERSION = "1.1.1"
 APPLICATION_AUTHORS = ["Maciej Hejlasz <DeimosMH>", ""]
 APPLICATION_OWNERS = "Breeze Energies Sp. z o.o."
 
@@ -918,7 +918,7 @@ class MainWindow(QMainWindow):
             if (
                 device.name
                 and device.address not in seen_addresses
-                and device.name.startswith(("BR", "NB", "AP", "Sti"))
+                and device.name.startswith(("BR", "LC", "NB", "AP", "Sti"))
             ):
                 # Add device to the list with its RSSI
                 devices_list.append((device, advertisement_data.rssi))

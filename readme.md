@@ -2,7 +2,15 @@
 
 ## Dependencies
 
-- Python 3.12
+- Python 3.13.2
+
+venv creation example
+```sh
+python3.13 -m venv ~/.venvs/qtcreator_Python_3_13_2venv
+source ~/.venvs/qtcreator_Python_3_13_2venv/bin/activate    
+pip install --upgrade pip
+```
+`~` is `/home/$USER` 
 
 ```sh
 pip install pyserial

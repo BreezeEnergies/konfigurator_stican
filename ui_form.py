@@ -3,7 +3,7 @@
 ################################################################################
 ## Form generated from reading UI file 'form.ui'
 ##
-## Created by: Qt User Interface Compiler version 6.7.3
+## Created by: Qt User Interface Compiler version 6.9.2
 ##
 ## WARNING! All changes made in this file will be lost when recompiling UI file!
 ################################################################################
@@ -24,7 +24,7 @@ class Ui_MainWindow(object):
     def setupUi(self, MainWindow):
         if not MainWindow.objectName():
             MainWindow.setObjectName(u"MainWindow")
-        MainWindow.resize(800, 623)
+        MainWindow.resize(800, 723)
         self.centralwidget = QWidget(MainWindow)
         self.centralwidget.setObjectName(u"centralwidget")
         self.centralwidget.setMinimumSize(QSize(800, 700))
@@ -41,13 +41,13 @@ class Ui_MainWindow(object):
         self.Status.setMaximumSize(QSize(16777215, 60))
         self.connectionLayout = QHBoxLayout(self.Status)
         self.connectionLayout.setObjectName(u"connectionLayout")
-        self.connectionLayout.setSizeConstraint(QLayout.SetMinAndMaxSize)
+        self.connectionLayout.setSizeConstraint(QLayout.SizeConstraint.SetMinAndMaxSize)
         self.Detect = QFrame(self.Status)
         self.Detect.setObjectName(u"Detect")
         self.Detect.setMaximumSize(QSize(16777215, 40))
         self.detectionLayout = QHBoxLayout(self.Detect)
         self.detectionLayout.setObjectName(u"detectionLayout")
-        self.detectionLayout.setSizeConstraint(QLayout.SetMinAndMaxSize)
+        self.detectionLayout.setSizeConstraint(QLayout.SizeConstraint.SetMinAndMaxSize)
         self.statusIndicatorLabel = QLabel(self.Detect)
         self.statusIndicatorLabel.setObjectName(u"statusIndicatorLabel")
         self.statusIndicatorLabel.setMinimumSize(QSize(20, 20))
@@ -85,15 +85,15 @@ class Ui_MainWindow(object):
         font.setBold(True)
         font.setStrikeOut(False)
         self.Information1.setFont(font)
-        self.Information1.setTextFormat(Qt.RichText)
-        self.Information1.setAlignment(Qt.AlignCenter)
+        self.Information1.setTextFormat(Qt.TextFormat.RichText)
+        self.Information1.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.verticalLayout_2.addWidget(self.Information1)
 
         self.Information2 = QLabel(self.configurationTab)
         self.Information2.setObjectName(u"Information2")
         self.Information2.setMaximumSize(QSize(16777215, 20))
-        self.Information2.setAlignment(Qt.AlignCenter)
+        self.Information2.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.verticalLayout_2.addWidget(self.Information2)
 
@@ -139,8 +139,8 @@ class Ui_MainWindow(object):
 
         self.UserConfigureValidation = QFrame(self.configurationTab)
         self.UserConfigureValidation.setObjectName(u"UserConfigureValidation")
-        self.UserConfigureValidation.setFrameShape(QFrame.StyledPanel)
-        self.UserConfigureValidation.setFrameShadow(QFrame.Raised)
+        self.UserConfigureValidation.setFrameShape(QFrame.Shape.StyledPanel)
+        self.UserConfigureValidation.setFrameShadow(QFrame.Shadow.Raised)
 
         self.verticalLayout_2.addWidget(self.UserConfigureValidation)
 
@@ -191,8 +191,8 @@ class Ui_MainWindow(object):
         self.advButtons = QFrame(self.advancedTab)
         self.advButtons.setObjectName(u"advButtons")
         self.advButtons.setMinimumSize(QSize(0, 25))
-        self.advButtons.setFrameShape(QFrame.StyledPanel)
-        self.advButtons.setFrameShadow(QFrame.Raised)
+        self.advButtons.setFrameShape(QFrame.Shape.StyledPanel)
+        self.advButtons.setFrameShadow(QFrame.Shadow.Raised)
         self.advSaveLog = QPushButton(self.advButtons)
         self.advSaveLog.setObjectName(u"advSaveLog")
         self.advSaveLog.setGeometry(QRect(0, 0, 90, 25))
@@ -210,8 +210,8 @@ class Ui_MainWindow(object):
         self.frame = QFrame(self.infoTab)
         self.frame.setObjectName(u"frame")
         self.frame.setMaximumSize(QSize(16777215, 20))
-        self.frame.setFrameShape(QFrame.StyledPanel)
-        self.frame.setFrameShadow(QFrame.Raised)
+        self.frame.setFrameShape(QFrame.Shape.StyledPanel)
+        self.frame.setFrameShadow(QFrame.Shadow.Raised)
         self.EN_Button = QPushButton(self.frame)
         self.EN_Button.setObjectName(u"EN_Button")
         self.EN_Button.setGeometry(QRect(660, 0, 51, 20))
@@ -230,47 +230,47 @@ class Ui_MainWindow(object):
         self.versionLabel = QLabel(self.infoTab)
         self.versionLabel.setObjectName(u"versionLabel")
 
-        self.InfoLayout.setWidget(4, QFormLayout.LabelRole, self.versionLabel)
+        self.InfoLayout.setWidget(4, QFormLayout.ItemRole.LabelRole, self.versionLabel)
 
         self.versionValueLabel = QLabel(self.infoTab)
         self.versionValueLabel.setObjectName(u"versionValueLabel")
 
-        self.InfoLayout.setWidget(4, QFormLayout.FieldRole, self.versionValueLabel)
+        self.InfoLayout.setWidget(4, QFormLayout.ItemRole.FieldRole, self.versionValueLabel)
 
         self.authorsLabel = QLabel(self.infoTab)
         self.authorsLabel.setObjectName(u"authorsLabel")
 
-        self.InfoLayout.setWidget(5, QFormLayout.LabelRole, self.authorsLabel)
+        self.InfoLayout.setWidget(5, QFormLayout.ItemRole.LabelRole, self.authorsLabel)
 
         self.authorsValueLabel = QLabel(self.infoTab)
         self.authorsValueLabel.setObjectName(u"authorsValueLabel")
 
-        self.InfoLayout.setWidget(5, QFormLayout.FieldRole, self.authorsValueLabel)
+        self.InfoLayout.setWidget(5, QFormLayout.ItemRole.FieldRole, self.authorsValueLabel)
 
         self.licenseLabel = QLabel(self.infoTab)
         self.licenseLabel.setObjectName(u"licenseLabel")
 
-        self.InfoLayout.setWidget(6, QFormLayout.LabelRole, self.licenseLabel)
+        self.InfoLayout.setWidget(6, QFormLayout.ItemRole.LabelRole, self.licenseLabel)
 
         self.licenseValueLabel = QLabel(self.infoTab)
         self.licenseValueLabel.setObjectName(u"licenseValueLabel")
 
-        self.InfoLayout.setWidget(6, QFormLayout.FieldRole, self.licenseValueLabel)
+        self.InfoLayout.setWidget(6, QFormLayout.ItemRole.FieldRole, self.licenseValueLabel)
 
         self.companyLabel = QLabel(self.infoTab)
         self.companyLabel.setObjectName(u"companyLabel")
 
-        self.InfoLayout.setWidget(7, QFormLayout.LabelRole, self.companyLabel)
+        self.InfoLayout.setWidget(7, QFormLayout.ItemRole.LabelRole, self.companyLabel)
 
         self.companyValueLabel = QLabel(self.infoTab)
         self.companyValueLabel.setObjectName(u"companyValueLabel")
 
-        self.InfoLayout.setWidget(7, QFormLayout.FieldRole, self.companyValueLabel)
+        self.InfoLayout.setWidget(7, QFormLayout.ItemRole.FieldRole, self.companyValueLabel)
 
         self.verticalLayout_5 = QVBoxLayout()
         self.verticalLayout_5.setObjectName(u"verticalLayout_5")
 
-        self.InfoLayout.setLayout(10, QFormLayout.FieldRole, self.verticalLayout_5)
+        self.InfoLayout.setLayout(10, QFormLayout.ItemRole.FieldRole, self.verticalLayout_5)
 
 
         self.verticalLayout_6.addLayout(self.InfoLayout)

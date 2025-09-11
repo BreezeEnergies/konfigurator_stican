@@ -918,7 +918,7 @@ class MainWindow(QMainWindow):
             if (
                 device.name
                 and device.address not in seen_addresses
-                and device.name.startswith(("BR", "LC", "NB", "AP", "Sti"))
+                and device.name.startswith(("BR", "LC", "NB", "AP"))
             ):
                 # Add device to the list with its RSSI
                 devices_list.append((device, advertisement_data.rssi))

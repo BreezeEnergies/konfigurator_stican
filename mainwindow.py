@@ -1,6 +1,3 @@
-import time
-import serial
-import serial.tools.list_ports
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -15,44 +12,56 @@ from PySide6.QtWidgets import (
     QTextEdit,
     QTableWidget,
     QTableWidgetItem,
+    QScrollArea,
+    QWidget,
+    QVBoxLayout,
 )
-from PySide6.QtCore import QTimer, QObject, QThread, Signal, Slot
 from PySide6.QtCore import (
+    QTimer,
+    QObject,
+    QThread,
+    Signal,
+    Slot,
+    QMetaObject,
+    Qt,
     QTranslator,
     QLocale,
     QLibraryInfo,
     QCoreApplication,
     QSysInfo,
 )
-from datetime import datetime
 from PySide6.QtGui import QMovie, QValidator
+
+
+from datetime import datetime
 from ui_form import Ui_MainWindow
 
 import os
 import sys
-from bleak import BleakScanner
+import queue
 import asyncio
+import time
+import serial
+import serial.tools.list_ports
 
-from PySide6.QtCore import QMetaObject, Qt
-from PySide6.QtWidgets import QScrollArea, QWidget, QVBoxLayout
+from bleak import BleakScanner
 
-import queue   # std-lib
 
-APPLICATION_VERSION = '1.2.1'
-APPLICATION_AUTHORS = ['Maciej Hejlasz <DeimosMH>', '']
-APPLICATION_OWNERS = 'Breeze Energies Sp. z o.o.'
+APPLICATION_VERSION = "1.2.2"
+APPLICATION_AUTHORS = ["Maciej Hejlasz <DeimosMH>", ""]
+APPLICATION_OWNERS = "Breeze Energies Sp. z o.o."
 
 def resource_path(relative_path):
-    """Get absolute path to resource, works for dev and for PyInstaller""" 
+    """Get absolute path to resource, works for dev and for PyInstaller"""
     try:
         # PyInstaller creates a temp folder and stores path in _MEIPASS
         base_path = sys._MEIPASS
     except Exception:
-        base_path = os.path.abspath('.')
+        base_path = os.path.abspath(".")
 
     return os.path.join(base_path, relative_path)
-ANIMATION_FILES = [resource_path('loading-snake-io.gif')]
 
+ANIMATION_FILES = [resource_path("loading-snake-io.gif")]
 
 class LoadingAnimation(QWidget):
     def __init__(self):
@@ -79,6 +88,7 @@ class LoadingAnimation(QWidget):
     def stop_animation(self):
         self.movie.stop()
 
+
 class ConfigureWorker(QObject):
     prompt_message = Signal(str)
     finished = Signal()
@@ -92,7 +102,9 @@ class ConfigureWorker(QObject):
     expected_disconnection = False
 
     # 1. ask the GUI to show a binary-choice dialog
-    request_choice = Signal(str, list)   # question, [button1, button2] (V > 3.0) Victron/Deye
+    request_choice = Signal(
+        str, list
+    )  # question, [button1, button2] (V > 3.0) Victron/Deye
 
     def __init__(self, devices, port):
         super().__init__()
@@ -105,8 +117,8 @@ class ConfigureWorker(QObject):
         self.correctedData = False
         self.software_version = None
         self.software_version_number = 0.0
-        
-        self._choice_queue = queue.Queue()   # 1-element queue
+
+        self._choice_queue = queue.Queue()  # 1-element queue
 
     def check_connection_status(self):
         # Check if the StiCAN device is still connected
@@ -123,16 +135,20 @@ class ConfigureWorker(QObject):
 
     def handle_disconnection(self):
         self.connection_timer.stop()
-        QMessageBox.warning(None, 'Connection Lost', 'StiCAN device disconnected. Attempting to reconnect...')
+        QMessageBox.warning(
+            None,
+            "Connection Lost",
+            "StiCAN device disconnected. Attempting to reconnect...",
+        )
         try:
             self.serial_connection = serial.Serial(self.port, 115200, timeout=1)
-            self.log.emit('Reconnected to StiCAN device.')
+            self.log.emit("Reconnected to StiCAN device.")
             self.stican_detected = True
             self.connection_timer.start(500)
         except Exception as e:
-            self.log.emit(f'Error: Could not reconnect: {str(e)}')
-            self.progress.emit(1, 'FAIL')
-            self.error.emit('Error: Could not reconnect to StiCAN device.')
+            self.log.emit(f"Error: Could not reconnect: {str(e)}")
+            self.progress.emit(1, "FAIL")
+            self.error.emit("Error: Could not reconnect to StiCAN device.")
             self.clean_conn()
 
     def clean_conn(self):
@@ -148,29 +164,29 @@ class ConfigureWorker(QObject):
         self.finished.emit()
 
     def open_serial_connection(self):
-        """Try opening a serial connection to self.port."""  
+        """Try opening a serial connection to self.port."""
         try:
             self.serial_connection = serial.Serial(self.port, 115200, timeout=1)
-            self.log.emit('Connected to StiCAN device.')
+            self.log.emit("Connected to StiCAN device.")
             return True
         except Exception as e:
-            self.log.emit(f'Error: Could not connect: {str(e)}')
+            self.log.emit(f"Error: Could not connect: {str(e)}")
             return False
 
     def step_ConnectionStatus(self, step_index):
         """
-        Optional small step to confirm or log the device is connected        
+        Optional small step to confirm or log the device is connected
         (and set the step to PASS if it is).
         """
-        self.log.emit('Checking initial Connection Status...')
-        self.progress.emit(step_index, 'PASS')
+        self.log.emit("Checking initial Connection Status...")
+        self.progress.emit(step_index, "PASS")
 
     def step_ValidateDataToWrite(self, step_index):
         """
         Validate the lines in self.devices, correct if needed, and
         check for duplicates or formatting errors.
         """
-        self.log.emit('Starting OptionCheck (ValidateDataToWrite)...')
+        self.log.emit("Starting OptionCheck (ValidateDataToWrite)...")
         correctedData = False
 
         # Validate and possibly correct the configuration data
@@ -193,18 +209,18 @@ class ConfigureWorker(QObject):
         seen_devices = set()  # Set to track seen devices
         for i in range(1, len(self.devices)):
             device = self.devices[i]
-            
+
             # Check for duplicate device
             if device in seen_devices:
-                self.log.emit(f'Duplicate device found: {device}')
-                self.progress.emit(step_index, 'FAIL')
+                self.log.emit(f"Duplicate device found: {device}")
+                self.progress.emit(step_index, "FAIL")
                 self.error.emit(
-                        QCoreApplication.translate(
-                            "MainWindow", "Error: Serial Number duplicate"
-                        )
+                    QCoreApplication.translate(
+                        "MainWindow", "Error: Serial Number duplicate"
+                    )
                 )
                 self.finished.emit()
-                raise RuntimeError('Duplicate device found')
+                raise RuntimeError("Duplicate device found")
             else:
                 seen_devices.add(device)
 
@@ -222,44 +238,43 @@ class ConfigureWorker(QObject):
                 correctedData = True
 
         if correctedData:
-            self.log.emit('Configuration data was corrected.')
-            self.log.emit('Read the Manual to avoid config errors.')
-        else:  
-            self.log.emit('Data is correct.')
-        
-        self.progress.emit(step_index, 'PASS')
+            self.log.emit("Configuration data was corrected.")
+            self.log.emit("Read the Manual to avoid config errors.")
+        else:
+            self.log.emit("Data is correct.")
+
+        self.progress.emit(step_index, "PASS")
         self.correctedData = correctedData
 
     def step_ReadDeviceInfo(self, step_index):
         """
         Open the serial port and read the device info (e.g., \'info\' command).
         Also parse out self.software_version and self.software_version_number.
-        """ 
-        
+        """
+
         if not self.open_serial_connection():
-            self.progress.emit(step_index, 'FAIL')
+            self.progress.emit(step_index, "FAIL")
             self.finished.emit()
             return
-        
 
-        MANDATORY = "STICAN"          # what must be present for success
-        ABORT     = "-U-"             # stop-reading token
-        RX_TIMEOUT = 3.0              # seconds we are prepared to listen
-        RETRY_PAUSE = 1.0             # seconds to wait after we saw “-U-”
+        MANDATORY = "STICAN"  # what must be present for success
+        ABORT = "-U-"  # stop-reading token
+        RX_TIMEOUT = 3.0  # seconds we are prepared to listen
+        RETRY_PAUSE = 1.0  # seconds to wait after we saw “-U-”
 
-        max_attempts = 3    
+        max_attempts = 3
         attempts = 0
         info_response = ""
-        
+
         while attempts < max_attempts:
             attempts += 1
 
             if attempts == 2:
-                time.sleep(7) # if p2p - stopping work mode can be slow
+                time.sleep(7)  # if p2p - stopping work mode can be slow
 
             self.log.emit(f"info attempt {attempts}/{max_attempts}")
 
-            self.serial_connection.write(b'info')    # the actual command
+            self.serial_connection.write(b"info")  # the actual command
 
             t0 = time.time()
             rx_buffer = ""
@@ -272,7 +287,7 @@ class ConfigureWorker(QObject):
                     self.serial_connection.in_waiting or 1
                 ).decode(errors="ignore")
 
-                if not chunk:                # nothing arrived in this poll
+                if not chunk:  # nothing arrived in this poll
                     time.sleep(0.05)
                     continue
 
@@ -291,18 +306,18 @@ class ConfigureWorker(QObject):
             # -----------------------------------------------------------
             # evaluate this attempt
             # -----------------------------------------------------------
-            if success:                      # rule-2
+            if success:  # rule-2
                 info_response = rx_buffer
                 break
 
-            if aborted:                      # rule-3
+            if aborted:  # rule-3
                 self.log.emit("'-U-' detected - pausing 1 s before next attempt")
                 time.sleep(RETRY_PAUSE)
                 # loop will continue with attempts+1
 
-            else:                            # rule-1 (nothing arrived)
+            else:  # rule-1 (nothing arrived)
                 self.log.emit("No reply within 5 s - retrying")
-    
+
         # -----------------------------------------------------------------------
         # after the loop
         # -----------------------------------------------------------------------
@@ -312,7 +327,6 @@ class ConfigureWorker(QObject):
             self.error.emit("Error: Unable to retrieve valid info response.")
             self.clean_conn()
             raise RuntimeError("No 'info' response")
-
 
         # Define substrings to remove
         substrings_to_remove = [
@@ -338,48 +352,52 @@ class ConfigureWorker(QObject):
             self.software_version_number = float(
                 self.software_version.split()[0][1:]
             )  # Extract "1.1" from "V1.1 rel1"
-    
+
             self.log.emit(f"Device Type: {device_type}")
             self.log.emit(f"Hardware Version: {hardware_version}")
             self.log.emit(f"Software Version: {self.software_version}")
             self.log.emit(f"Software Version Number: {self.software_version_number}")
-            
+
         else:  # inserted
-            self.log.emit('Error: Unexpected info format.')
-            self.progress.emit(step_index, 'FAIL')
+            self.log.emit("Error: Unexpected info format.")
+            self.progress.emit(step_index, "FAIL")
             self.clean_conn()
-            raise RuntimeError('Bad \'info\' format')
-        
-        self.progress.emit(step_index, 'PASS')
+            raise RuntimeError("Bad 'info' format")
+
+        self.progress.emit(step_index, "PASS")
 
     def step_PrepareForConfiguration(self, step_index):
         """
         Erase memory / do memory checks based on software version to prepare device.
-        """ 
-        self.log.emit('Preparing device for configuration...')
+        """
+        self.log.emit("Preparing device for configuration...")
         self.serial_connection.reset_input_buffer()
         self.serial_connection.reset_output_buffer()
 
-        if not (self.serial_connection and self.serial_connection.is_open) and (not self.open_serial_connection()):
-            self.progress.emit(step_index, 'FAIL')
+        if not (self.serial_connection and self.serial_connection.is_open) and (
+            not self.open_serial_connection()
+        ):
+            self.progress.emit(step_index, "FAIL")
             self.clean_conn()
-            raise RuntimeError('Port not open')
-        
+            raise RuntimeError("Port not open")
+
         try:
             self.serial_connection.reset_input_buffer()
             self.serial_connection.reset_output_buffer()
             # self.serial_connection.write(b'help')
             # time.sleep(2)
 
-            received_check_data = self.serial_connection.read_all().decode('utf-8', errors='ignore')
-            self.log.emit(f'Check: {received_check_data}')
+            received_check_data = self.serial_connection.read_all().decode(
+                "utf-8", errors="ignore"
+            )
+            self.log.emit(f"Check: {received_check_data}")
             if self.software_version_number >= 3.0:
-                self.log.emit('SW >= 3.0 => using \'memfctr\'')
-                self.serial_connection.write(b'memfctr')
+                self.log.emit("SW >= 3.0 => using 'memfctr'")
+                self.serial_connection.write(b"memfctr")
                 time.sleep(2)
 
-                RX_TIMEOUT = 8.0              # seconds we are prepared to listen
-                self.serial_connection.write(b'info')    # the actual command
+                RX_TIMEOUT = 8.0  # seconds we are prepared to listen
+                self.serial_connection.write(b"info")  # the actual command
                 self.log.emit("Send 'info'")
 
                 t0 = time.time()
@@ -391,7 +409,7 @@ class ConfigureWorker(QObject):
                         self.serial_connection.in_waiting or 1
                     ).decode(errors="ignore")
 
-                    if not chunk:                # nothing arrived in this poll
+                    if not chunk:  # nothing arrived in this poll
                         time.sleep(0.05)
                         continue
 
@@ -402,22 +420,22 @@ class ConfigureWorker(QObject):
                         break
 
             elif self.software_version_number > 1.1:
-                self.log.emit('SW > 1.1 -> memory 64kB => using \'memfctr\'')
-                self.serial_connection.write(b'memfctr')
+                self.log.emit("SW > 1.1 -> memory 64kB => using 'memfctr'")
+                self.serial_connection.write(b"memfctr")
                 time.sleep(9)
             else:
-                self.log.emit('SW <= 1.1 -> memory 16kB => manual erase approach')
-                self.serial_connection.write(b'memerase')
+                self.log.emit("SW <= 1.1 -> memory 16kB => manual erase approach")
+                self.serial_connection.write(b"memerase")
                 time.sleep(3)
-                self.serial_connection.write(b'0')
+                self.serial_connection.write(b"0")
                 time.sleep(1.5)
-                self.serial_connection.write(b'2')
+                self.serial_connection.write(b"2")
                 time.sleep(3)
-                self.serial_connection.write(b'memerase')
+                self.serial_connection.write(b"memerase")
                 time.sleep(3)
-                self.serial_connection.write(b'4')
+                self.serial_connection.write(b"4")
                 time.sleep(1.5)
-                self.serial_connection.write(b'23')
+                self.serial_connection.write(b"23")
                 time.sleep(3)
 
             # Check for expected response
@@ -427,7 +445,7 @@ class ConfigureWorker(QObject):
             config_success = False
 
             while attempts < max_attempts:
-
+                self.log.emit("Send 'memchck'")
                 self.serial_connection.write(b"memchck")
 
                 RX_TIMEOUT = 3.0
@@ -440,11 +458,12 @@ class ConfigureWorker(QObject):
                         self.serial_connection.in_waiting or 1
                     ).decode(errors="ignore")
 
-                    if not chunk:                # nothing arrived in this poll
+                    if not chunk:  # nothing arrived in this poll
                         time.sleep(0.05)
                         continue
 
                     rx_buffer += chunk
+                    self.log.emit(f"ln {chunk}")
 
                     if expected_substring in rx_buffer:
                         config_success = True
@@ -452,7 +471,6 @@ class ConfigureWorker(QObject):
 
                 if config_success:
                     break
-
 
                 self.log.emit("Unexpected data received, retrying...")
                 attempts += 1
@@ -484,16 +502,16 @@ class ConfigureWorker(QObject):
         """
         Upload the data in self.devices (serial numbers of batteries) to the StiCAN device.
         """
-        self.log.emit('Uploading data to StiCAN...')
+        self.log.emit("Uploading data to StiCAN...")
 
-        if not (self.serial_connection and self.serial_connection.is_open) and (not self.open_serial_connection()):
-            self.progress.emit(step_index, 'FAIL')
+        if not (self.serial_connection and self.serial_connection.is_open) and (
+            not self.open_serial_connection()
+        ):
+            self.progress.emit(step_index, "FAIL")
             self.clean_conn()
-            raise RuntimeError('Port not open')
+            raise RuntimeError("Port not open")
         try:
             self.serial_connection.write(b"batnew")
-
-
 
             time.sleep(2)
             iTemp = 0
@@ -506,17 +524,19 @@ class ConfigureWorker(QObject):
                     self.log.emit("Wrote :: CONFIG DATA ::")
 
                     if self.software_version_number >= 3.0:
-                        self.log.emit("Additional :: CONFIG DATA :: for software_version ≥ 3.0")
+                        self.log.emit(
+                            "Additional :: CONFIG DATA :: for software_version ≥ 3.0"
+                        )
 
                         # ---- pop-up -------------------------------------------------
                         self.request_choice.emit(
                             "Inverter connection mode", ["Deye", "Victron"]
                         )
-                        choice = self._choice_queue.get(timeout=30)   # blocks ≤ 30 s
+                        choice = self._choice_queue.get(timeout=30)  # blocks ≤ 30 s
                         # choice is the **text** of the clicked button
                         # -------------------------------------------------------------
 
-                        code = b"01" if choice == 'Victron' else b"00"
+                        code = b"01" if choice == "Victron" else b"00"
 
                         if code == b"01":
                             self.log.emit(f"Set 'Victron': {code}")
@@ -526,16 +546,16 @@ class ConfigureWorker(QObject):
                         self.serial_connection.write(code)
                         time.sleep(2)
 
-
                         # ---- pop-up -------------------------------------------------
                         self.request_choice.emit(
-                            "Work connection mode\nCDT works only with batteries from 2025 and above", ["P2P", "CDT"]
+                            "Work connection mode\nCDT works only with batteries from 2025 and above",
+                            ["P2P", "CDT"],
                         )
-                        choice = self._choice_queue.get(timeout=30)   # blocks ≤ 30 s
+                        choice = self._choice_queue.get(timeout=30)  # blocks ≤ 30 s
                         # choice is the **text** of the clicked button
                         # -------------------------------------------------------------
 
-                        code = b"0" if choice == 'CDT' else b"1"
+                        code = b"0" if choice == "CDT" else b"1"
 
                         if code == b"0":
                             self.log.emit(f"Set 'CDT': {code}")
@@ -568,128 +588,142 @@ class ConfigureWorker(QObject):
         Read the data back from the device and verify it matches the lines in self.devices.
         """
         self.log.emit("Verifying uploaded data...")
-        
-        if not (self.serial_connection and self.serial_connection.is_open) and (not self.open_serial_connection()):
-            self.progress.emit(step_index, 'FAIL')
-            self.clean_conn()
-            raise RuntimeError('Port not open')
-        try:
-            device_lines = []
-            max_retries = 4
-            for attempt in range(max_retries):
 
-                self.serial_connection.write(b"batread")
-                self.log.emit("Send `batread`")
+        if not (self.serial_connection and self.serial_connection.is_open) and (
+            not self.open_serial_connection()
+        ):
+            self.progress.emit(step_index, "FAIL")
+            self.clean_conn()
+            raise RuntimeError("Port not open")
+        try:
+            max_full_retries = 2
+            fail_full = True
+
+            for full_attempt in range(max_full_retries):
 
                 device_lines = []
-                start_time = time.time()
+                max_retries = 4
+                for attempt in range(max_retries):
+                    self.serial_connection.write(b"batread")
+                    self.log.emit("Send `batread`")
 
-                if self.software_version_number >= 3.0:
-                    # first byte = amount of batteries (two-digit string)
-                    while self.serial_connection.in_waiting < 2 and \
-                        (time.time() - start_time) < 3:
-                        time.sleep(.05)
-                    if self.serial_connection.in_waiting < 2:
-                        continue        # retry outer loop
+                    device_lines = []
+                    start_time = time.time()
 
-                    header = self.serial_connection.read(2)   # b'02' … b'99'
-                    try:
-                        expected = int(header.decode('ascii'))
-                    except ValueError:
-                        self.log.emit(f"Bad header: {header!r}")
-                        continue
+                    if self.software_version_number >= 3.0:
+                        # first byte = amount of batteries (two-digit string)
+                        while (
+                            self.serial_connection.in_waiting < 2
+                            and (time.time() - start_time) < 3
+                        ):
+                            time.sleep(0.05)
+                        if self.serial_connection.in_waiting < 2:
+                            continue  # retry outer loop
 
-                    self.log.emit(f"Expecting {expected} battery lines")
+                        header = self.serial_connection.read(2)  # b'02' … b'99'
+                        try:
+                            expected = int(header.decode("ascii"))
+                        except ValueError:
+                            self.log.emit(f"Bad header: {header!r}")
+                            continue
 
-                    # read exactly <expected> lines
-                    while len(device_lines) < expected:
-                        if self.serial_connection.in_waiting:
-                            raw = self.serial_connection.readline()
-                            line = raw.decode("utf-8", errors="ignore") \
-                                    .replace(",012131210,", "") \
+                        self.log.emit(f"Expecting {expected} battery lines")
+
+                        # read exactly <expected> lines
+                        while len(device_lines) < expected:
+                            if self.serial_connection.in_waiting:
+                                raw = self.serial_connection.readline()
+                                line = (
+                                    raw.decode("utf-8", errors="ignore")
+                                    .replace(",012131210,", "")
                                     .strip()
-                            if not line:            # skip empty
-                                continue
-                            device_lines.append(line)
-                        elif (time.time() - start_time) > 10:
-                            break
-
-                    if len(device_lines) == expected:
-                        break               # success → leave retry loop
-
-
-                else:
-                    self.log.emit("\nRead lines:")
-                    while True:
-                        if self.serial_connection.in_waiting > 0:
-                            line = (
-                                self.serial_connection.readline()
-                                .decode("utf-8", errors="ignore")
-                                .strip()
-                            )
-                            self.log.emit(f"Read line: {line}")
-                            if line:
-                                if line != "-COMMAND-MODE-":
-                                    device_lines.append(line)
-                                else:
-                                    break  # End marker reached
-                            else:
-                                continue
-                        else:
-                            if time.time() - start_time > 10:
+                                )
+                                if not line:  # skip empty
+                                    continue
+                                device_lines.append(line)
+                            elif (time.time() - start_time) > 10:
                                 break
 
-                if len(device_lines) > 0:
-                    # Process the received data
+                        if len(device_lines) == expected:
+                            break  # success → leave retry loop
+
+                    else:
+                        self.log.emit("\nRead lines:")
+                        while True:
+                            if self.serial_connection.in_waiting > 0:
+                                line = (
+                                    self.serial_connection.readline()
+                                    .decode("utf-8", errors="ignore")
+                                    .strip()
+                                )
+                                self.log.emit(f"Read line: {line}")
+                                if line:
+                                    if line != "-COMMAND-MODE-":
+                                        device_lines.append(line)
+                                    else:
+                                        break  # End marker reached
+                                else:
+                                    continue
+                            else:
+                                if time.time() - start_time > 10:
+                                    break
+
+                    if len(device_lines) > 0:
+                        # Process the received data
+                        break
+
+                    if attempt < max_retries - 1:
+                        self.log.emit(
+                            f"No data received. Retrying... (Attempt {attempt + 2}/{max_retries})"
+                        )
+                        time.sleep(1)  # Wait for 1 second before retrying
+
+                # Remove the first line (number of devices) if present
+                if device_lines and device_lines[0].isdigit():
+                    device_lines = device_lines[1:]
+                devices_from_device = device_lines
+
+                # Remove spaces and normalize
+                devices_normalized = [
+                    line.replace(" ", "").strip() for line in self.devices[1:]
+                ]
+                devices_from_device_normalized = [
+                    line.replace(" ", "").strip() for line in devices_from_device
+                ]
+
+                # Remove known substrings
+                if ",012131210," in devices_from_device_normalized:
+                    devices_from_device_normalized.remove(",012131210,")
+
+                # Compare the lists
+                self.log.emit("\ndevices_normalized:")
+                self.log.emit(str(devices_normalized))
+                self.log.emit("\ndevices_from_device_normalized:")
+                self.log.emit(str(devices_from_device_normalized))
+
+                if devices_normalized == devices_from_device_normalized:
+                    self.log.emit("No differences found. Data verified successfully.")
+                    self.progress.emit(step_index, "PASS")
+                    fail_full = False
                     break
-
-                if attempt < max_retries - 1:
-                    self.log.emit(
-                        f"No data received. Retrying... (Attempt {attempt + 2}/{max_retries})"
+                else:
+                    self.log.emit("Differences found in uploaded data:")
+                    differences = set(devices_normalized).symmetric_difference(
+                        devices_from_device_normalized
                     )
-                    time.sleep(1)  # Wait for 1 second before retrying
+                    for diff in differences:
+                        self.log.emit(f"Difference: {diff}")
+                    self.log.emit("Data corrupted. Try again.")
+                    fail_full = True
+                    continue
 
-            # Remove the first line (number of devices) if present
-            if device_lines and device_lines[0].isdigit():
-                device_lines = device_lines[1:]
-            devices_from_device = device_lines
-
-            # Remove spaces and normalize
-            devices_normalized = [
-                line.replace(" ", "").strip() for line in self.devices[1:]
-            ]
-            devices_from_device_normalized = [
-                line.replace(" ", "").strip() for line in devices_from_device
-            ]
-
-            # Remove known substrings
-            if ",012131210," in devices_from_device_normalized:
-                devices_from_device_normalized.remove(",012131210,")
-
-            # Compare the lists
-            self.log.emit("\ndevices_normalized:")
-            self.log.emit(str(devices_normalized))
-            self.log.emit("\ndevices_from_device_normalized:")
-            self.log.emit(str(devices_from_device_normalized))
-
-
-            if devices_normalized == devices_from_device_normalized:
-                self.log.emit("No differences found. Data verified successfully.")
-                self.progress.emit(step_index, "PASS")
-            else:
-                self.log.emit("Differences found in uploaded data:")
-                differences = set(devices_normalized).symmetric_difference(
-                    devices_from_device_normalized
-                )
-                for diff in differences:
-                    self.log.emit(f"Difference: {diff}")
-                self.log.emit("Data corrupted. Please try again.")
+            if fail_full:
                 self.progress.emit(step_index, "FAIL")
                 self.clean_conn()
-                raise RuntimeError('Data verification failed')
-                
+                raise RuntimeError("Data verification failed")
+
         except Exception as e:
-            self.log.emit(f'Error verifying data: {str(e)}')
+            self.log.emit(f"Error verifying data: {str(e)}")
             self.progress.emit(step_index, "FAIL")
             self.clean_conn()
         finally:
@@ -697,68 +731,84 @@ class ConfigureWorker(QObject):
             self.serial_connection.reset_output_buffer()
 
     def step_ScanAndDetectDevices(self, step_index):
-        self.log.emit('Verifying battery detection...')
-        if not (self.serial_connection and self.serial_connection.is_open) and (not self.open_serial_connection()):
-            self.progress.emit(step_index, 'FAIL')
+        self.log.emit("Verifying battery detection...")
+        if not (self.serial_connection and self.serial_connection.is_open) and (
+            not self.open_serial_connection()
+        ):
+            self.progress.emit(step_index, "FAIL")
             self.clean_conn()
-            raise RuntimeError('Port not open')
+            raise RuntimeError("Port not open")
 
         max_retries = 3
         not_found_batteries = []
 
         if self.software_version_number > 1.0:
-            self.serial_connection.write(b'reboot') # necessary for proper scan after configuration  
+            self.serial_connection.write(
+                b"reboot"
+            )  # necessary for proper scan after configuration
             time.sleep(3)
 
         for attempt in range(max_retries):
             not_found_batteries.clear()
-            self.log.emit(f"\nVerifying battery detection... (attempt {attempt+1}/{max_retries})")
+            self.log.emit(
+                f"\nVerifying battery detection... (attempt {attempt + 1}/{max_retries})"
+            )
 
             # --- send command (no line ending) -----------------------------
             time.sleep(2)
-            self.serial_connection.write(b"scan")          # <<< NO \r\n
+            self.serial_connection.write(b"scan")  # <<< NO \r\n
 
             # --- read with the new rules ----------------------------------
             allBatConn = []
-            RX_TIMEOUT = 9.0                # rule-1: 9-second window
-            ABORT      = "-U-"
+            RX_TIMEOUT = 9.0  # rule-1: 9-second window
+            ABORT = "-U-"
             start_time = time.time()
-            got_data   = False              # true as soon as we see any char
+            got_data = False  # true as soon as we see any char
 
             while (time.time() - start_time) < RX_TIMEOUT:
                 if self.serial_connection.in_waiting > 0:
-                    line = (self.serial_connection.readline()
-                            .decode("utf-8", errors="ignore")
-                            .strip())
-                    self.log.emit(f'ln: {line}')
+                    line = (
+                        self.serial_connection.readline()
+                        .decode("utf-8", errors="ignore")
+                        .strip()
+                    )
+                    self.log.emit(f"ln: {line}")
                     got_data = True
 
                     # rule-3: abort if -U- arrives while still missing batteries
-                    if ABORT in line and not all(r in allBatConn for r in self.devices[1:]):
+                    if ABORT in line and not all(
+                        r in allBatConn for r in self.devices[1:]
+                    ):
                         self.log.emit("'-U-' detected - pause 1 s")
+                        max_retries += 1
                         time.sleep(1)
                         break
 
                     # normal processing (unchanged from reference)
-                    if line.startswith('found') or line.startswith('search'):
+                    if line.startswith("found") or line.startswith("search"):
                         parts = line.split(",")
                         if len(parts) >= 2:
                             found_serial = parts[1]
                             for device_line in self.devices[1:]:
-                                if found_serial in device_line and device_line not in allBatConn:
+                                if (
+                                    found_serial in device_line
+                                    and device_line not in allBatConn
+                                ):
                                     allBatConn.append(device_line)
 
                             # <-- early exit when list complete
                             if all(d in allBatConn for d in self.devices[1:]):
-                                self.log.emit('All devices found - finishing scan early')
-                                break          # leaves the while-loop instantly
+                                self.log.emit(
+                                    "All devices found - finishing scan early"
+                                )
+                                break  # leaves the while-loop instantly
 
                 else:
-                    time.sleep(0.05)        # small anti-spin delay
+                    time.sleep(0.05)  # small anti-spin delay
 
             # rule-1: nothing arrived at all → retry
             if not got_data:
-                self.log.emit('No reply within 5 s - retry')
+                self.log.emit("No reply within timeout - retry")
                 continue
 
             # --- pass/fail evaluation (identical to reference) -------------
@@ -780,20 +830,20 @@ class ConfigureWorker(QObject):
         self.serial_connection.reset_output_buffer()
 
         if STICAN_PASS:
-            self.log.emit('CONFIGURATION RESULT: SUCCESS!')
-            self.progress.emit(step_index, 'PASS')
+            self.log.emit("CONFIGURATION RESULT: SUCCESS!")
+            self.progress.emit(step_index, "PASS")
             self.success.emit()
         else:
-            self.log.emit('CONFIGURATION RESULT: FAIL!')
-            self.progress.emit(step_index, 'FAIL')
+            self.log.emit("CONFIGURATION RESULT: FAIL!")
+            self.progress.emit(step_index, "FAIL")
             not_found_batteries_filtered = list(set(not_found_batteries))
             self.devices_not_found.emit(not_found_batteries_filtered)
 
         self.clean_conn()
 
     def run(self):
-        """Perform the full configuration in discrete steps.""" 
-        
+        """Perform the full configuration in discrete steps."""
+
         self.started.emit()
         try:
             step_index = 0
@@ -810,9 +860,10 @@ class ConfigureWorker(QObject):
             step_index = 5
             self.step_ScanAndDetectDevices(step_index)
         except Exception as e:
-            self.log.emit(f'Error during configuration: {str(e)}')
-            self.progress.emit(step_index, 'FAIL')
+            self.log.emit(f"Error during configuration: {str(e)}")
+            self.progress.emit(step_index, "FAIL")
             self.clean_conn()
+
 
 class CommandWorker(QObject):
     finished = Signal()
@@ -918,7 +969,9 @@ class MainWindow(QMainWindow):
 
         # Initialize detection status flag
         self.stican_detected = False
-        self.stican_detected_stop_sig = False # Send signal at the connection only once - for StiCAN > V3.0
+        self.stican_detected_stop_sig = (
+            False  # Send signal at the connection only once - for StiCAN > V3.0
+        )
 
         self.detect_system()
         self.print_system_params()
@@ -1464,12 +1517,13 @@ class MainWindow(QMainWindow):
                 # Send once after connection
                 ports = list(serial.tools.list_ports.comports())
                 stican_port = next(
-                    (p.device for p in ports if p.vid == 0x10C4 and p.pid == 0xEA60), None
+                    (p.device for p in ports if p.vid == 0x10C4 and p.pid == 0xEA60),
+                    None,
                 )
                 conn = serial.Serial(stican_port, 115200, timeout=1)
-                conn.write(b's')  # stop work mode for >= v3.0
+                conn.write(b"s")  # stop work mode for >= v3.0
                 self.stican_detected_stop_sig = True
-                
+
         else:
             self.stican_detected = False
             self.stican_detected_stop_sig = False
@@ -1495,7 +1549,6 @@ class MainWindow(QMainWindow):
             # Close the serial connection if open
             if hasattr(self, "serial_connection") and self.serial_connection.is_open:
                 self.serial_connection.close()
-
 
     def configure_stican(self):
         # Check if StiCAN is detected
@@ -1568,7 +1621,7 @@ class MainWindow(QMainWindow):
                 row["remove_button"].setEnabled(True)
 
         self.ui.advConfigureOutputText.append("Configuration process completed.")
-        
+
         try:
             self.worker.request_choice.disconnect()
         except RuntimeError:
@@ -1581,15 +1634,15 @@ class MainWindow(QMainWindow):
         # Stop the timer to deactivate detect_stican
         self.timer.stop()
 
-
         # Create worker thread
         self.thread = QThread()
         self.worker = ConfigureWorker(devices, port)
 
         self.worker.moveToThread(self.thread)
 
-        self.worker.request_choice.connect(self._show_choice_dialog,
-                                           Qt.BlockingQueuedConnection)
+        self.worker.request_choice.connect(
+            self._show_choice_dialog, Qt.BlockingQueuedConnection
+        )
 
         # Connect signals and slots
         self.worker.prompt_message.connect(self.handle_prompt_message)
@@ -1627,10 +1680,10 @@ class MainWindow(QMainWindow):
         btn2 = dlg.addButton(choices[1], QMessageBox.AcceptRole)
         dlg.setDefaultButton(btn1)
 
-        dlg.exec()          # modal, blocks until user clicks
+        dlg.exec()  # modal, blocks until user clicks
 
         clicked_text = dlg.clickedButton().text()
-        self.worker._choice_queue.put(clicked_text)   # send back to worker
+        self.worker._choice_queue.put(clicked_text)  # send back to worker
 
     def show_error_popup(self, message):
         QMessageBox.critical(
@@ -1760,7 +1813,6 @@ class MainWindow(QMainWindow):
         # self.resize(current_size.width(), new_height)
 
     def remove_battery_row(self, row_widget, row_data):
-
         if row_data["serial_number_input"]:
             row_data["serial_number_input"].setValidator(None)
 

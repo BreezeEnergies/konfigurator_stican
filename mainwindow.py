@@ -188,6 +188,7 @@ class ConfigureWorker(QObject):
                 self.devices[0] = expectedFirstLine
             else:
                 self.log.emit("First line is correct")
+
         # Validate each device line
         seen_devices = set()  # Set to track seen devices
         for i in range(1, len(self.devices)):
@@ -240,53 +241,75 @@ class ConfigureWorker(QObject):
             self.finished.emit()
             return
         
+
+        MANDATORY = "STICAN"          # what must be present for success
+        ABORT     = "-U-"             # stop-reading token
+        RX_TIMEOUT = 3.0              # seconds we are prepared to listen
+        RETRY_PAUSE = 1.0             # seconds to wait after we saw “-U-”
+
         max_attempts = 3
         attempts = 0
-        info_response = ''
+        info_response = ""
+        
         while attempts < max_attempts:
-            try:
-                self.serial_connection.write(b's') # for version >= 3.0
-                time.sleep(3)
-                self.serial_connection.write(b'info')
-                time.sleep(3)  # Wait for the device to respond
-
-                info_response = self.serial_connection.read_all().decode(
-                    "utf-8", errors="ignore"
-                )
-
-                self.log.emit(f'Info Response: {info_response}')
-
-                # Check if the response is valid (you can define what a valid response is)
-                if "STICAN" in info_response:  # Example check, adjust as needed
-                    break  # Exit the loop if the response is valid
-            except Exception as e:
-                self.log.emit(f"Error sending 'info' command: {str(e)}")
-
             attempts += 1
-            if attempts < max_attempts:
-                self.log.emit(
-                    f"Retrying 'info' command... (Attempt {attempts + 1}/{max_attempts})"
-                )
-            else:
-                self.log.emit(
-                    "Failed to get a valid response after 3 attempts."
-                )
+            self.log.emit(f"info attempt {attempts}/{max_attempts}")
 
-            # After the loop, you can handle the case where the response is still invalid
-            if "STICAN" not in info_response:
-                self.log.emit(
-                    "Error: Unable to retrieve valid info response after 3 attempts."
-                )
-                self.progress.emit(step_index, "FAIL")
-                self.error.emit(
-                    QCoreApplication.translate(
-                        "MainWindow",
-                        "Error: Unable to retrieve valid info response.",
-                    )
-                )
-                self.clean_conn()
-                raise RuntimeError('No \'info\' response')
+            self.serial_connection.write(b'info')    # the actual command
+
+            t0 = time.time()
+            rx_buffer = ""
+            success = False
+            aborted = False
+
+            # read until timeout or one of the two tokens arrives
+            while (time.time() - t0) < RX_TIMEOUT:
+                chunk = self.serial_connection.read(
+                    self.serial_connection.in_waiting or 1
+                ).decode(errors="ignore")
+
+                if not chunk:                # nothing arrived in this poll
+                    time.sleep(0.05)
+                    continue
+
+                rx_buffer += chunk
+
+                # rule-2 : we have what we need
+                if MANDATORY in rx_buffer:
+                    success = True
+                    break
+
+                # rule-3 : abort criterion met
+                if ABORT in rx_buffer and MANDATORY not in rx_buffer:
+                    aborted = True
+                    break
+
+            # -----------------------------------------------------------
+            # evaluate this attempt
+            # -----------------------------------------------------------
+            if success:                      # rule-2
+                info_response = rx_buffer
+                break
+
+            if aborted:                      # rule-3
+                self.log.emit("'-U-' detected - pausing 1 s before next attempt")
+                time.sleep(RETRY_PAUSE)
+                # loop will continue with attempts+1
+
+            else:                            # rule-1 (nothing arrived)
+                self.log.emit("No reply within 5 s - retrying")
     
+        # -----------------------------------------------------------------------
+        # after the loop
+        # -----------------------------------------------------------------------
+        if MANDATORY not in info_response:
+            self.log.emit("Failed to get a valid response after 3 attempts.")
+            self.progress.emit(step_index, "FAIL")
+            self.error.emit("Error: Unable to retrieve valid info response.")
+            self.clean_conn()
+            raise RuntimeError("No 'info' response")
+
+
         # Define substrings to remove
         substrings_to_remove = [
             ",012131210,",
@@ -341,14 +364,39 @@ class ConfigureWorker(QObject):
         try:
             self.serial_connection.reset_input_buffer()
             self.serial_connection.reset_output_buffer()
-            self.serial_connection.write(b'help')
-            time.sleep(2)
+            # self.serial_connection.write(b'help')
+            # time.sleep(2)
+
             received_check_data = self.serial_connection.read_all().decode('utf-8', errors='ignore')
             self.log.emit(f'Check: {received_check_data}')
             if self.software_version_number >= 3.0:
                 self.log.emit('SW >= 3.0 => using \'memfctr\'')
                 self.serial_connection.write(b'memfctr')
-                time.sleep(9)
+                time.sleep(2)
+
+                RX_TIMEOUT = 8.0              # seconds we are prepared to listen
+                self.serial_connection.write(b'info')    # the actual command
+                self.log.emit("Send 'info'")
+
+                t0 = time.time()
+                rx_buffer = ""
+
+                # read until timeout or one of the two tokens arrives
+                while (time.time() - t0) < RX_TIMEOUT:
+                    chunk = self.serial_connection.read(
+                        self.serial_connection.in_waiting or 1
+                    ).decode(errors="ignore")
+
+                    if not chunk:                # nothing arrived in this poll
+                        time.sleep(0.05)
+                        continue
+
+                    rx_buffer += chunk
+
+                    # rule-2 : we have what we need
+                    if "STICAN" in rx_buffer:
+                        break
+
             elif self.software_version_number > 1.1:
                 self.log.emit('SW > 1.1 -> memory 64kB => using \'memfctr\'')
                 self.serial_connection.write(b'memfctr')
@@ -375,31 +423,32 @@ class ConfigureWorker(QObject):
             config_success = False
 
             while attempts < max_attempts:
+
                 self.serial_connection.write(b"memchck")
-                time.sleep(2)
-                received_data = self.serial_connection.read_all().decode(
-                    "utf-8", errors="ignore"
-                )
 
-                self.log.emit(f"Data: {received_data}")
+                RX_TIMEOUT = 3.0
+                t0 = time.time()
+                rx_buffer = ""
 
-                # Define substrings to remove
-                substrings_to_remove = [
-                    ",012131210,",
-                    "-U-",
-                    "-COMMAND-MODE-",
-                    " ",
-                    "\n",
-                ]
-                # Remove specified substrings
-                for substring in substrings_to_remove:
-                    received_data = received_data.replace(substring, "")
+                # read until timeout or one of the two tokens arrives
+                while (time.time() - t0) < RX_TIMEOUT:
+                    chunk = self.serial_connection.read(
+                        self.serial_connection.in_waiting or 1
+                    ).decode(errors="ignore")
 
-                self.log.emit(f"Cleaned Data: {received_data}")
+                    if not chunk:                # nothing arrived in this poll
+                        time.sleep(0.05)
+                        continue
 
-                if expected_substring in received_data:
-                    config_success = True
+                    rx_buffer += chunk
+
+                    if expected_substring in rx_buffer:
+                        config_success = True
+                        break
+
+                if config_success:
                     break
+
 
                 self.log.emit("Unexpected data received, retrying...")
                 attempts += 1
@@ -454,7 +503,6 @@ class ConfigureWorker(QObject):
 
                     if self.software_version_number >= 3.0:
                         self.log.emit("Additional :: CONFIG DATA :: for software_version ≥ 3.0")
-                        time.sleep(2)
 
                         # ---- pop-up -------------------------------------------------
                         self.request_choice.emit(
@@ -465,16 +513,23 @@ class ConfigureWorker(QObject):
                         # -------------------------------------------------------------
 
                         code = b"01" if choice == 'Victron' else b"00"
+
+                        if code == b"01":
+                            self.log.emit(f"Set 'Victron': {code}")
+                        else:
+                            self.log.emit(f"Set 'Deye': {code}")
+
                         self.serial_connection.write(code)
                         time.sleep(2)
 
-                        self.serial_connection.write(b'1')
+                        self.serial_connection.write(b'1') # P2P
+                        time.sleep(2)
 
                 else:
                     self.log.emit(f"Wrote SN {iTemp} : {device_line}")
 
                 iTemp += 1
-            time.sleep(2)
+            time.sleep(2.5)
             self.log.emit("Data upload completed")
             self.progress.emit(step_index, "PASS")
         except Exception as e:
@@ -501,8 +556,8 @@ class ConfigureWorker(QObject):
             max_retries = 4
             for attempt in range(max_retries):
 
-
                 self.serial_connection.write(b"batread")
+                self.log.emit("Send `batread`")
 
                 device_lines = []
                 start_time = time.time()
@@ -620,24 +675,18 @@ class ConfigureWorker(QObject):
             self.serial_connection.reset_output_buffer()
 
     def step_ScanAndDetectDevices(self, step_index):
-        """
-        Switch to debug mode, run \'scan\', check which batteries are found, 
-        and compare with self.devices. 
-        """
-
+        
         self.log.emit('Verifying battery detection...')
         if not (self.serial_connection and self.serial_connection.is_open) and (not self.open_serial_connection()):
             self.progress.emit(step_index, 'FAIL')
             self.clean_conn()
             raise RuntimeError('Port not open')
+        
         attempt = 0
         max_retries = 3
         not_found_batteries = []
         STICAN_PASS = False
 
-        time.sleep(1)
-        self.serial_connection.write(b"b") # back to the main menu - for older devices
-        time.sleep(3)
 
         for attempt in range(max_retries):
             not_found_batteries.clear()
@@ -835,6 +884,7 @@ class MainWindow(QMainWindow):
 
         # Initialize detection status flag
         self.stican_detected = False
+        self.stican_detected_stop_sig = False # Send signal at the connection only once - for StiCAN > V3.0
 
         self.detect_system()
         self.print_system_params()
@@ -1375,8 +1425,20 @@ class MainWindow(QMainWindow):
             # Re-enable buttons
             self.ui.configureSticanButton.setEnabled(True)
             self.ui.addBatteryButton.setEnabled(True)
+
+            if self.stican_detected_stop_sig is False:
+                # Send once after connection
+                ports = list(serial.tools.list_ports.comports())
+                stican_port = next(
+                    (p.device for p in ports if p.vid == 0x10C4 and p.pid == 0xEA60), None
+                )
+                conn = serial.Serial(stican_port, 115200, timeout=1)
+                conn.write(b's')  # stop work mode for >= v3.0
+                self.stican_detected_stop_sig = True
+                
         else:
             self.stican_detected = False
+            self.stican_detected_stop_sig = False
             self.ui.detectionStatusLabel.setText(
                 QCoreApplication.translate("MainWindow", "StiCAN Status: Not Detected")
             )

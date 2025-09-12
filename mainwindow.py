@@ -247,12 +247,16 @@ class ConfigureWorker(QObject):
         RX_TIMEOUT = 3.0              # seconds we are prepared to listen
         RETRY_PAUSE = 1.0             # seconds to wait after we saw “-U-”
 
-        max_attempts = 3
+        max_attempts = 3    
         attempts = 0
         info_response = ""
         
         while attempts < max_attempts:
             attempts += 1
+
+            if attempts == 2:
+                time.sleep(2)
+
             self.log.emit(f"info attempt {attempts}/{max_attempts}")
 
             self.serial_connection.write(b'info')    # the actual command
@@ -675,56 +679,61 @@ class ConfigureWorker(QObject):
             self.serial_connection.reset_output_buffer()
 
     def step_ScanAndDetectDevices(self, step_index):
-        
         self.log.emit('Verifying battery detection...')
         if not (self.serial_connection and self.serial_connection.is_open) and (not self.open_serial_connection()):
             self.progress.emit(step_index, 'FAIL')
             self.clean_conn()
             raise RuntimeError('Port not open')
-        
-        attempt = 0
+
         max_retries = 3
         not_found_batteries = []
-        STICAN_PASS = False
-
 
         for attempt in range(max_retries):
             not_found_batteries.clear()
-            self.log.emit("\nVerifying battery detection...")
+            self.log.emit(f"\nVerifying battery detection... (attempt {attempt+1}/{max_retries})")
+
+            # --- send command (no line ending) -----------------------------
             time.sleep(2)
-            self.serial_connection.reset_input_buffer()
-            self.serial_connection.write(b"scan")
+            self.serial_connection.write(b"scan")          # <<< NO \r\n
+
+            # --- read with the new rules ----------------------------------
             allBatConn = []
-            readTime = 9  # seconds
-            self.log.emit(
-                f"Performing battery detection for {readTime} seconds..."
-            )
+            RX_TIMEOUT = 9.0                # rule-1: 9-second window
+            ABORT      = "-U-"
             start_time = time.time()
-            while True:
+            got_data   = False              # true as soon as we see any char
+
+            while (time.time() - start_time) < RX_TIMEOUT:
                 if self.serial_connection.in_waiting > 0:
-                    line = (
-                        self.serial_connection.readline()
-                        .decode("utf-8", errors="ignore")
-                        .strip()
-                    )
+                    line = (self.serial_connection.readline()
+                            .decode("utf-8", errors="ignore")
+                            .strip())
                     self.log.emit(f'ln: {line}')
+                    got_data = True
 
+                    # rule-3: abort if -U- arrives while still missing batteries
+                    if ABORT in line and not all(r in allBatConn for r in self.devices[1:]):
+                        self.log.emit("'-U-' detected - pause 1 s")
+                        time.sleep(1)
+                        break
+
+                    # normal processing (unchanged from reference)
                     if line.startswith('found') or line.startswith('search'):
-                        # Extract serial number from device response
-
                         parts = line.split(",")
                         if len(parts) >= 2:
                             found_serial = parts[1]
                             for device_line in self.devices[1:]:
                                 if found_serial in device_line and device_line not in allBatConn:
                                     allBatConn.append(device_line)
-                    else:
-                        pass
                 else:
-                    if time.time() - start_time > readTime:
-                        break
+                    time.sleep(0.05)        # small anti-spin delay
 
-            # Verify which batteries are connected
+            # rule-1: nothing arrived at all → retry
+            if not got_data:
+                self.log.emit('No reply within 5 s - retry')
+                continue
+
+            # --- pass/fail evaluation (identical to reference) -------------
             STICAN_PASS = True
             for device_line in self.devices[1:]:
                 if device_line in allBatConn:
@@ -736,9 +745,9 @@ class ConfigureWorker(QObject):
 
             if STICAN_PASS:
                 break
-            else:
-                attempt += 1
+            # else natural loop continues to next attempt
 
+        # --- final report ---------------------------------------------------
         self.serial_connection.reset_input_buffer()
         self.serial_connection.reset_output_buffer()
 
@@ -751,6 +760,7 @@ class ConfigureWorker(QObject):
             self.progress.emit(step_index, 'FAIL')
             not_found_batteries_filtered = list(set(not_found_batteries))
             self.devices_not_found.emit(not_found_batteries_filtered)
+
         self.clean_conn()
 
     def run(self):
@@ -769,7 +779,7 @@ class ConfigureWorker(QObject):
             self.step_UploadData(step_index)
             step_index = 4
             self.step_VerifyDeviceData(step_index)
-            if self.software_version_number > 1.0:
+            if self.software_version_number > 1.0 and self.software_version_number < 3.0:
                 time.sleep(1)
                 self.serial_connection.write(b'reboot')
                 time.sleep(2)

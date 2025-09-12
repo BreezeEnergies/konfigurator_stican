@@ -38,7 +38,7 @@ from PySide6.QtWidgets import QScrollArea, QWidget, QVBoxLayout
 
 import queue   # std-lib
 
-APPLICATION_VERSION = '1.2.0'
+APPLICATION_VERSION = '1.2.1'
 APPLICATION_AUTHORS = ['Maciej Hejlasz <DeimosMH>', '']
 APPLICATION_OWNERS = 'Breeze Energies Sp. z o.o.'
 
@@ -255,7 +255,7 @@ class ConfigureWorker(QObject):
             attempts += 1
 
             if attempts == 2:
-                time.sleep(2)
+                time.sleep(7) # if p2p - stopping work mode can be slow
 
             self.log.emit(f"info attempt {attempts}/{max_attempts}")
 
@@ -526,7 +526,25 @@ class ConfigureWorker(QObject):
                         self.serial_connection.write(code)
                         time.sleep(2)
 
-                        self.serial_connection.write(b'1') # P2P
+
+                        # ---- pop-up -------------------------------------------------
+                        self.request_choice.emit(
+                            "Work connection mode\nCDT works only with batteries from 2025 and above", ["P2P", "CDT"]
+                        )
+                        choice = self._choice_queue.get(timeout=30)   # blocks ≤ 30 s
+                        # choice is the **text** of the clicked button
+                        # -------------------------------------------------------------
+
+                        code = b"0" if choice == 'CDT' else b"1"
+
+                        if code == b"0":
+                            self.log.emit(f"Set 'CDT': {code}")
+                        else:
+                            self.log.emit(f"Set 'P2P': {code}")
+
+                        self.serial_connection.write(code)
+                        # self.serial_connection.write(b'1') # P2P
+
                         time.sleep(2)
 
                 else:
@@ -688,6 +706,10 @@ class ConfigureWorker(QObject):
         max_retries = 3
         not_found_batteries = []
 
+        if self.software_version_number > 1.0:
+            self.serial_connection.write(b'reboot') # necessary for proper scan after configuration  
+            time.sleep(3)
+
         for attempt in range(max_retries):
             not_found_batteries.clear()
             self.log.emit(f"\nVerifying battery detection... (attempt {attempt+1}/{max_retries})")
@@ -725,6 +747,12 @@ class ConfigureWorker(QObject):
                             for device_line in self.devices[1:]:
                                 if found_serial in device_line and device_line not in allBatConn:
                                     allBatConn.append(device_line)
+
+                            # <-- early exit when list complete
+                            if all(d in allBatConn for d in self.devices[1:]):
+                                self.log.emit('All devices found - finishing scan early')
+                                break          # leaves the while-loop instantly
+
                 else:
                     time.sleep(0.05)        # small anti-spin delay
 
@@ -779,10 +807,6 @@ class ConfigureWorker(QObject):
             self.step_UploadData(step_index)
             step_index = 4
             self.step_VerifyDeviceData(step_index)
-            if self.software_version_number > 1.0 and self.software_version_number < 3.0:
-                time.sleep(1)
-                self.serial_connection.write(b'reboot')
-                time.sleep(2)
             step_index = 5
             self.step_ScanAndDetectDevices(step_index)
         except Exception as e:
@@ -868,8 +892,8 @@ class MainWindow(QMainWindow):
 
         # Add 4 battery fields at the start
         self.add_battery_row(is_first_row=True)  # First row with placeholders
-        for _ in range(3):  # Remaining rows
-            self.add_battery_row()
+        # for _ in range(3):  # Remaining rows
+        #     self.add_battery_row()
 
         # Initialize User Configure Validation indicators
         self.init_user_configure_validation()
@@ -1683,7 +1707,8 @@ class MainWindow(QMainWindow):
             serial_number_input.setPlaceholderText(
                 QCoreApplication.translate("MainWindow", "Battery Serial Number")
             )
-            serial_number_input.setText("BR4830TWFO10121J01")
+            # serial_number_input.setText("BR4830TWFO10121J01")
+            serial_number_input.setText("TT0000TTTT00000T00")
 
             validator = self._create_battery_validator()
             serial_number_input.setValidator(validator)
@@ -1692,7 +1717,8 @@ class MainWindow(QMainWindow):
             pin_input.setPlaceholderText(
                 QCoreApplication.translate("MainWindow", "PIN")
             )
-            pin_input.setText("080324")
+            # pin_input.setText("080324")
+            pin_input.setText("000000")
 
             pin_validator = self._create_pin_validator()
             pin_input.setValidator(pin_validator)

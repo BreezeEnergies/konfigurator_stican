@@ -47,7 +47,7 @@ import serial.tools.list_ports
 from bleak import BleakScanner
 
 
-APPLICATION_VERSION = "1.2.3"
+APPLICATION_VERSION = "1.2.4"
 APPLICATION_AUTHORS = ["Maciej Hejlasz <DeimosMH>", ""]
 APPLICATION_OWNERS = "Breeze Energies Sp. z o.o."
 
@@ -246,6 +246,7 @@ class ConfigureWorker(QObject):
         self.progress.emit(step_index, "PASS")
         self.correctedData = correctedData
 
+
     def step_ReadDeviceInfo(self, step_index):
         """
         Open the serial port and read the device info (e.g., \'info\' command).
@@ -271,7 +272,7 @@ class ConfigureWorker(QObject):
             self.serial_connection.write(b"s")  # stop work mode for >= v3.0 at start 
             time.sleep(3)
 
-        MANDATORY = "STICAN"  # what must be present for success
+        MANDATORY = "STICAN,"  # More specific: ignores "-STICAN-" in boot logs
         ABORT = "-U-"  # stop-reading token
         ABORT_b = "POWERON_RESET"
         RX_TIMEOUT = 3.0  # seconds we are prepared to listen
@@ -329,7 +330,8 @@ class ConfigureWorker(QObject):
             # evaluate this attempt
             # -----------------------------------------------------------
             if success:  # rule-2
-                info_response = rx_buffer
+                # Once we find the valid start, discard everything before it
+                info_response = rx_buffer[rx_buffer.find(MANDATORY):]
                 break
 
             if aborted:  # rule-3
@@ -612,7 +614,9 @@ class ConfigureWorker(QObject):
             self.progress.emit(step_index, "FAIL")
             self.clean_conn()
             return
-
+        finally:
+            self.serial_connection.reset_input_buffer()
+            self.serial_connection.reset_output_buffer()
 
 
     def step_VerifyDeviceData(self, step_index):
@@ -677,7 +681,7 @@ class ConfigureWorker(QObject):
                     
                     if len(device_lines) == expected:
                         break # Success! Exit the retry loop.
-                    
+
                 if len(device_lines) == 0 and full_attempt < max_full_retries -1:
                     self.log.emit("Failed to read any device lines. Retrying full process...")
                     continue
@@ -733,7 +737,7 @@ class ConfigureWorker(QObject):
             self.clean_conn()
             raise RuntimeError("Port not open")
 
-        max_retries = 3
+        max_retries = 4
         not_found_batteries = []
 
         if self.software_version_number > 1.0:

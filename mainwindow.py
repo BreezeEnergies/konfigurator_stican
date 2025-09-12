@@ -47,7 +47,7 @@ import serial.tools.list_ports
 from bleak import BleakScanner
 
 
-APPLICATION_VERSION = "1.2.2"
+APPLICATION_VERSION = "1.2.3"
 APPLICATION_AUTHORS = ["Maciej Hejlasz <DeimosMH>", ""]
 APPLICATION_OWNERS = "Breeze Energies Sp. z o.o."
 
@@ -257,8 +257,23 @@ class ConfigureWorker(QObject):
             self.finished.emit()
             return
 
+
+        os_name = QSysInfo.productType()
+        if "lin" in os_name.lower():
+            self.log.emit("Linux")
+        else:
+            self.log.emit("Windows")
+            self.log.emit("'s' - wait")
+            self.serial_connection.write(b"s")  # stop work mode for >= v3.0 at start 
+            time.sleep(3)
+            self.serial_connection.write(b"info")  # stop work mode for >= v3.0 at start 
+            time.sleep(3)
+            self.serial_connection.write(b"s")  # stop work mode for >= v3.0 at start 
+            time.sleep(3)
+
         MANDATORY = "STICAN"  # what must be present for success
         ABORT = "-U-"  # stop-reading token
+        ABORT_b = "POWERON_RESET"
         RX_TIMEOUT = 3.0  # seconds we are prepared to listen
         RETRY_PAUSE = 1.0  # seconds to wait after we saw “-U-”
 
@@ -270,6 +285,8 @@ class ConfigureWorker(QObject):
             attempts += 1
 
             if attempts == 2:
+                if "win" in os_name.lower():
+                    self.serial_connection.write(b"s")  # stop work mode for >= v3.0 at start 
                 time.sleep(7)  # if p2p - stopping work mode can be slow
 
             self.log.emit(f"info attempt {attempts}/{max_attempts}")
@@ -302,6 +319,11 @@ class ConfigureWorker(QObject):
                 if ABORT in rx_buffer and MANDATORY not in rx_buffer:
                     aborted = True
                     break
+
+                if ABORT_b in rx_buffer:
+                    aborted = True
+                    break
+
 
             # -----------------------------------------------------------
             # evaluate this attempt
@@ -370,6 +392,7 @@ class ConfigureWorker(QObject):
         """
         Erase memory / do memory checks based on software version to prepare device.
         """
+
         self.log.emit("Preparing device for configuration...")
         self.serial_connection.reset_input_buffer()
         self.serial_connection.reset_output_buffer()
@@ -380,12 +403,19 @@ class ConfigureWorker(QObject):
             self.progress.emit(step_index, "FAIL")
             self.clean_conn()
             raise RuntimeError("Port not open")
-
+        
         try:
             self.serial_connection.reset_input_buffer()
             self.serial_connection.reset_output_buffer()
-            # self.serial_connection.write(b'help')
-            # time.sleep(2)
+
+
+            os_name = QSysInfo.productType()
+            if "lin" in os_name.lower():
+                self.log.emit("Linux")
+            else:
+                self.log.emit("Windows - cmd")
+                self.serial_connection.write(b'help')
+                time.sleep(2)
 
             received_check_data = self.serial_connection.read_all().decode(
                 "utf-8", errors="ignore"
@@ -395,6 +425,9 @@ class ConfigureWorker(QObject):
                 self.log.emit("SW >= 3.0 => using 'memfctr'")
                 self.serial_connection.write(b"memfctr")
                 time.sleep(2)
+
+                if "win" in os_name.lower():
+                    time.sleep(4)
 
                 RX_TIMEOUT = 8.0  # seconds we are prepared to listen
                 self.serial_connection.write(b"info")  # the actual command
@@ -546,24 +579,24 @@ class ConfigureWorker(QObject):
                         self.serial_connection.write(code)
                         time.sleep(2)
 
-                        # ---- pop-up -------------------------------------------------
-                        self.request_choice.emit(
-                            "Work connection mode\nCDT works only with batteries from 2025 and above",
-                            ["P2P", "CDT"],
-                        )
-                        choice = self._choice_queue.get(timeout=30)  # blocks ≤ 30 s
-                        # choice is the **text** of the clicked button
-                        # -------------------------------------------------------------
+                        # # ---- pop-up -------------------------------------------------
+                        # self.request_choice.emit(
+                        #     "Work connection mode\nCDT works only with batteries from 2025 and above",
+                        #     ["P2P", "CDT"],
+                        # )
+                        # choice = self._choice_queue.get(timeout=30)  # blocks ≤ 30 s
+                        # # choice is the **text** of the clicked button
+                        # # -------------------------------------------------------------
 
-                        code = b"0" if choice == "CDT" else b"1"
+                        # code = b"0" if choice == "CDT" else b"1"
 
-                        if code == b"0":
-                            self.log.emit(f"Set 'CDT': {code}")
-                        else:
-                            self.log.emit(f"Set 'P2P': {code}")
+                        # if code == b"0":
+                        #     self.log.emit(f"Set 'CDT': {code}")
+                        # else:
+                        #     self.log.emit(f"Set 'P2P': {code}")
 
-                        self.serial_connection.write(code)
-                        # self.serial_connection.write(b'1') # P2P
+                        # self.serial_connection.write(code)
+                        self.serial_connection.write(b'1') # P2P
 
                         time.sleep(2)
 
@@ -579,9 +612,8 @@ class ConfigureWorker(QObject):
             self.progress.emit(step_index, "FAIL")
             self.clean_conn()
             return
-        finally:
-            self.serial_connection.reset_input_buffer()
-            self.serial_connection.reset_output_buffer()
+
+
 
     def step_VerifyDeviceData(self, step_index):
         """
@@ -595,95 +627,63 @@ class ConfigureWorker(QObject):
             self.progress.emit(step_index, "FAIL")
             self.clean_conn()
             raise RuntimeError("Port not open")
+        
+        self.serial_connection.timeout = 5  # Set a 5-second timeout for this slow command
+
         try:
+            self.serial_connection.reset_input_buffer()  # Still important to clear old data
+
             max_full_retries = 2
             fail_full = True
 
             for full_attempt in range(max_full_retries):
-
                 device_lines = []
                 max_retries = 4
                 for attempt in range(max_retries):
                     self.serial_connection.write(b"batread")
                     self.log.emit("Send `batread`")
 
-                    device_lines = []
+                    
+                    header = self.serial_connection.read(2)
+                    if len(header) < 2:
+                        self.log.emit(f"Attempt {attempt + 1}: Timed out waiting for header.")
+                        continue # Retry
+
+                    self.log.emit(f"header: {header}")
+
+                    try:
+                        expected = int(header.decode("ascii"))
+                    except (ValueError, UnicodeDecodeError):
+                        self.log.emit(f"Bad header: {header!r}")
+                        # If we get a bad header, read everything available to clear junk
+                        self.serial_connection.read(self.serial_connection.in_waiting) 
+                        continue
+
+                    self.log.emit(f"Expecting {expected} battery lines")
+
+                    # Read lines until we have the expected number or time out
                     start_time = time.time()
-
-                    if self.software_version_number >= 3.0:
-                        # first byte = amount of batteries (two-digit string)
-                        while (
-                            self.serial_connection.in_waiting < 2
-                            and (time.time() - start_time) < 3
-                        ):
-                            time.sleep(0.05)
-                        if self.serial_connection.in_waiting < 2:
-                            continue  # retry outer loop
-
-                        header = self.serial_connection.read(2)  # b'02' … b'99'
-                        try:
-                            expected = int(header.decode("ascii"))
-                        except ValueError:
-                            self.log.emit(f"Bad header: {header!r}")
-                            continue
-
-                        self.log.emit(f"Expecting {expected} battery lines")
-
-                        # read exactly <expected> lines
-                        while len(device_lines) < expected:
-                            if self.serial_connection.in_waiting:
-                                raw = self.serial_connection.readline()
-                                line = (
-                                    raw.decode("utf-8", errors="ignore")
-                                    .replace(",012131210,", "")
-                                    .strip()
-                                )
-                                if not line:  # skip empty
-                                    continue
-                                device_lines.append(line)
-                            elif (time.time() - start_time) > 10:
-                                break
-
-                        if len(device_lines) == expected:
-                            break  # success → leave retry loop
-
-                    else:
-                        self.log.emit("\nRead lines:")
-                        while True:
-                            if self.serial_connection.in_waiting > 0:
-                                line = (
-                                    self.serial_connection.readline()
-                                    .decode("utf-8", errors="ignore")
-                                    .strip()
-                                )
-                                self.log.emit(f"Read line: {line}")
-                                if line:
-                                    if line != "-COMMAND-MODE-":
-                                        device_lines.append(line)
-                                    else:
-                                        break  # End marker reached
-                                else:
-                                    continue
-                            else:
-                                if time.time() - start_time > 10:
-                                    break
-
-                    if len(device_lines) > 0:
-                        # Process the received data
-                        break
-
-                    if attempt < max_retries - 1:
-                        self.log.emit(
-                            f"No data received. Retrying... (Attempt {attempt + 2}/{max_retries})"
+                    while len(device_lines) < expected and (time.time() - start_time) < 10:
+                        raw = self.serial_connection.readline()
+                        if not raw: # readline timed out
+                            break
+                        line = (
+                            raw.decode("utf-8", errors="ignore")
+                            .replace(",012131210,", "")
+                            .strip()
                         )
-                        time.sleep(1)  # Wait for 1 second before retrying
+                        if line: # Append if not empty
+                            device_lines.append(line)
+                    
+                    if len(device_lines) == expected:
+                        break # Success! Exit the retry loop.
+                    
+                if len(device_lines) == 0 and full_attempt < max_full_retries -1:
+                    self.log.emit("Failed to read any device lines. Retrying full process...")
+                    continue
 
-                # Remove the first line (number of devices) if present
-                if device_lines and device_lines[0].isdigit():
-                    device_lines = device_lines[1:]
                 devices_from_device = device_lines
 
-                # Remove spaces and normalize
                 devices_normalized = [
                     line.replace(" ", "").strip() for line in self.devices[1:]
                 ]
@@ -691,15 +691,9 @@ class ConfigureWorker(QObject):
                     line.replace(" ", "").strip() for line in devices_from_device
                 ]
 
-                # Remove known substrings
-                if ",012131210," in devices_from_device_normalized:
-                    devices_from_device_normalized.remove(",012131210,")
+                self.log.emit(f"\ndevices_normalized:\n{devices_normalized}")
+                self.log.emit(f"\ndevices_from_device_normalized:\n{devices_from_device_normalized}")
 
-                # Compare the lists
-                self.log.emit("\ndevices_normalized:")
-                self.log.emit(str(devices_normalized))
-                self.log.emit("\ndevices_from_device_normalized:")
-                self.log.emit(str(devices_from_device_normalized))
 
                 if devices_normalized == devices_from_device_normalized:
                     self.log.emit("No differences found. Data verified successfully.")
@@ -754,14 +748,21 @@ class ConfigureWorker(QObject):
                 f"\nVerifying battery detection... (attempt {attempt + 1}/{max_retries})"
             )
 
+            os_name = QSysInfo.productType()
+            if "win" in os_name.lower() and attempt == 2:
+                self.log.emit("Win - s")
+                self.serial_connection.write(b"s") 
+                time.sleep(7)
+
             # --- send command (no line ending) -----------------------------
             time.sleep(2)
-            self.serial_connection.write(b"scan")  # <<< NO \r\n
+            self.serial_connection.write(b"scan")  
 
             # --- read with the new rules ----------------------------------
             allBatConn = []
             RX_TIMEOUT = 9.0  # rule-1: 9-second window
             ABORT = "-U-"
+            ABORT_b = "SW_CPU_RESET"
             start_time = time.time()
             got_data = False  # true as soon as we see any char
 
@@ -780,6 +781,14 @@ class ConfigureWorker(QObject):
                         r in allBatConn for r in self.devices[1:]
                     ):
                         self.log.emit("'-U-' detected - pause 1 s")
+                        max_retries += 1
+                        time.sleep(1)
+                        break
+
+                    if ABORT_b in line and not all(
+                        r in allBatConn for r in self.devices[1:]
+                    ):
+                        self.log.emit("'SW_CPU_RESET' detected - pause 1 s")
                         max_retries += 1
                         time.sleep(1)
                         break
@@ -1092,12 +1101,21 @@ class MainWindow(QMainWindow):
         if "win" in os_name.lower():
             self.log("Windows is detected.")
             self.SYSTEM = "win"
-            if not self.check_driver_in_driverstore() or not self.check_driver_loaded():
-                translated_status = QCoreApplication.translate(
-                    "MainWindow",
-                    "Drivers not detected. You need to install drivers to connect with StiCAN.",
-                )
-                QMessageBox.information(self, "Drivers", f"{translated_status}")
+            
+            ## some drivers installed automatically from windows have the same signature and dont work!
+            # if not self.check_driver_in_driverstore() or not self.check_driver_loaded():
+            translated_status = QCoreApplication.translate(
+                "MainWindow",
+                "Do you want to install drivers to connect with StiCAN?")
+
+            reply = QMessageBox.question(
+                self,
+                "Drivers",
+                translated_status,
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes)          # default button
+
+            if reply == QMessageBox.Yes:
                 self.install_driver()
         elif "linux" in os_name.lower():
             self.log("Linux is detected.")
@@ -1513,15 +1531,17 @@ class MainWindow(QMainWindow):
             self.ui.configureSticanButton.setEnabled(True)
             self.ui.addBatteryButton.setEnabled(True)
 
+            # Broken in Windows
             if self.stican_detected_stop_sig is False:
-                # Send once after connection
-                ports = list(serial.tools.list_ports.comports())
-                stican_port = next(
-                    (p.device for p in ports if p.vid == 0x10C4 and p.pid == 0xEA60),
-                    None,
-                )
-                conn = serial.Serial(stican_port, 115200, timeout=1)
-                conn.write(b"s")  # stop work mode for >= v3.0
+                if self.SYSTEM == "lin":
+                    # Send once after connection
+                    ports = list(serial.tools.list_ports.comports())
+                    stican_port = next(
+                        (p.device for p in ports if p.vid == 0x10C4 and p.pid == 0xEA60),
+                        None,
+                    )
+                    conn = serial.Serial(stican_port, 115200, timeout=1)
+                    conn.write(b"s")  # stop work mode for >= v3.0
                 self.stican_detected_stop_sig = True
 
         else:

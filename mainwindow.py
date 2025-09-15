@@ -47,7 +47,7 @@ import serial.tools.list_ports
 from bleak import BleakScanner
 
 
-APPLICATION_VERSION = "1.2.4"
+APPLICATION_VERSION = "1.2.5"
 APPLICATION_AUTHORS = ["Maciej Hejlasz <DeimosMH>", ""]
 APPLICATION_OWNERS = "Breeze Energies Sp. z o.o."
 
@@ -272,9 +272,10 @@ class ConfigureWorker(QObject):
             self.serial_connection.write(b"s")  # stop work mode for >= v3.0 at start 
             time.sleep(3)
 
-        MANDATORY = "STICAN,"  # More specific: ignores "-STICAN-" in boot logs
+        MANDATORY = "STICAN,"  # More specific: ignores "-STICAN-" in boot logs (StiCAN can be rebooted in Windows in some cases)
         ABORT = "-U-"  # stop-reading token
         ABORT_b = "POWERON_RESET"
+        ABORT_c = "entry 0x"
         RX_TIMEOUT = 3.0  # seconds we are prepared to listen
         RETRY_PAUSE = 1.0  # seconds to wait after we saw “-U-”
 
@@ -321,7 +322,10 @@ class ConfigureWorker(QObject):
                     aborted = True
                     break
 
-                if ABORT_b in rx_buffer:
+                if (ABORT_b in rx_buffer or ABORT_c in rx_buffer):
+                    if "win" in os_name.lower():
+                        self.serial_connection.write(b"s")  # stop work mode for >= v3.0 at start 
+                        time.sleep(1)
                     aborted = True
                     break
 
@@ -336,11 +340,15 @@ class ConfigureWorker(QObject):
 
             if aborted:  # rule-3
                 self.log.emit("'-U-' detected - pausing 1 s before next attempt")
+                attempts -= 1
                 time.sleep(RETRY_PAUSE)
                 # loop will continue with attempts+1
 
             else:  # rule-1 (nothing arrived)
-                self.log.emit("No reply within 5 s - retrying")
+                self.log.emit(f"No reply within {RX_TIMEOUT} s - retrying")
+                if "win" in os_name.lower():
+                    self.serial_connection.write(b"s")  # stop work mode for >= v3.0 at start 
+                    time.sleep(1)
 
         # -----------------------------------------------------------------------
         # after the loop
@@ -767,6 +775,7 @@ class ConfigureWorker(QObject):
             RX_TIMEOUT = 9.0  # rule-1: 9-second window
             ABORT = "-U-"
             ABORT_b = "SW_CPU_RESET"
+            ABORT_c = "entry 0x"
             start_time = time.time()
             got_data = False  # true as soon as we see any char
 
@@ -784,14 +793,23 @@ class ConfigureWorker(QObject):
                     if ABORT in line and not all(
                         r in allBatConn for r in self.devices[1:]
                     ):
+                        if "win" in os_name.lower():
+                            self.serial_connection.write(b"scan")  
+                            time.sleep(2)
+
                         self.log.emit("'-U-' detected - pause 1 s")
                         max_retries += 1
                         time.sleep(1)
                         break
 
-                    if ABORT_b in line and not all(
+                    if (ABORT_b in line or ABORT_c in line) and not all(
                         r in allBatConn for r in self.devices[1:]
                     ):
+                        if "win" in os_name.lower():
+                            self.serial_connection.write(b"s")  # stop work mode for >= v3.0 at start 
+                            time.sleep(2)
+                            self.serial_connection.write(b"scan")  
+
                         self.log.emit("'SW_CPU_RESET' detected - pause 1 s")
                         max_retries += 1
                         time.sleep(1)

@@ -479,8 +479,7 @@ class ConfigureWorker(QObject):
             iTemp = 0
             for device_line in self.devices:
                 time.sleep(2)
-                line_to_send = device_line.encode("utf-8")
-                self.serial_connection.write(line_to_send)
+                self.serial_connection.write(device_line.encode("utf-8"))
 
                 if iTemp == 0:
                     self.log.emit("Wrote :: CONFIG DATA ::")
@@ -564,37 +563,56 @@ class ConfigureWorker(QObject):
         try:
             self.serial_connection.reset_input_buffer()  # Still important to clear old data
 
-            max_full_retries = 2
+            max_full_retries = 4
             fail_full = True
 
             for full_attempt in range(max_full_retries):
                 device_lines = []
-                max_retries = 4
+                max_retries = 5
                 for attempt in range(max_retries):
                     self.serial_connection.write(b"batread")
                     self.log.emit("Send `batread`")
 
+                    # header = self.serial_connection.read(2) # prone to errors
+                    header_line = self.serial_connection.readline().decode("ascii", errors="ignore").strip()
                     
-                    header = self.serial_connection.read(2)
-                    if len(header) < 2:
-                        self.log.emit(f"Attempt {attempt + 1}: Timed out waiting for header.")
+                    if not header_line:
+                        self.log.emit(f"Attempt {attempt + 1}: Timeout waiting for header.")
                         continue # Retry
 
-                    self.log.emit(f"header: {header}")
+                    self.log.emit(f"Header: {header_line}")
 
                     try:
-                        expected = int(header.decode("ascii"))
-                    except (ValueError, UnicodeDecodeError):
-                        self.log.emit(f"Bad header: {header!r}")
-                        # If we get a bad header, read everything available to clear junk
-                        self.serial_connection.read(self.serial_connection.in_waiting) 
+                        # Attempt to parse device count
+                        device_reported_count = int(header_line)
+                        self.log.emit(f"Attempt to parse device count {device_reported_count} from {header_line}")
+                    except ValueError:
+                         # Fallback if header is garbage, though readline() helps prevent this
+                        self.log.emit(f"WARNING: Invalid header received: {header_line}")
+                        device_reported_count = -1
+
+                    local_expected_count = len(self.devices) - 1
+
+                    self.log.emit(f"Header: {header_line} (Reported: {device_reported_count}, Expected: {local_expected_count})")
+
+                    # Logic to handle mismatch
+                    expected = local_expected_count
+                    if device_reported_count != local_expected_count:
+                        self.log.emit(f"WARNING: Device reports {device_reported_count} batteries, but we uploaded {local_expected_count}.")
+                        self.log.emit("Retrying full process...")
                         continue
+
+                    self.log.emit(f"Expected number of bat line {self.devices},\n INT {expected}, INT:02 {expected:02d}")
+
+                    if not self.devices[0].isdigit() or int(self.devices[0]) != expected:
+                        self.log.emit(f"First line corrected to {expected:02d}")
+                        self.devices[0] = f"{expected:02d}"
 
                     self.log.emit(f"Expecting {expected} battery lines")
 
                     # Read lines until we have the expected number or time out
                     start_time = time.time()
-                    while len(device_lines) < expected and (time.time() - start_time) < 10:
+                    while len(device_lines) < expected and ( (time.time() - start_time) < 10 ):
                         raw = self.serial_connection.readline()
                         if not raw: # readline timed out
                             break
@@ -673,7 +691,8 @@ class ConfigureWorker(QObject):
             )  # necessary for proper scan after configuration
             time.sleep(3)
 
-        for attempt in range(max_retries):
+        attempt = 0
+        while attempt < max_retries:
             not_found_batteries.clear()
             self.log.emit(
                 f"\nVerifying battery detection... (attempt {attempt + 1}/{max_retries})"
@@ -682,12 +701,12 @@ class ConfigureWorker(QObject):
             os_name = QSysInfo.productType()
             if "win" in os_name.lower() and attempt == 2:
                 self.log.emit("Win - s")
-                self.serial_connection.write(b"s") 
+                self.serial_connection.write(b"s")
                 time.sleep(7)
 
             # --- send command (no line ending) -----------------------------
             time.sleep(2)
-            self.serial_connection.write(b"scan")  
+            self.serial_connection.write(b"scan")
 
             # --- read with the new rules ----------------------------------
             allBatConn = []
@@ -713,11 +732,11 @@ class ConfigureWorker(QObject):
                         r in allBatConn for r in self.devices[1:]
                     ):
                         if "win" in os_name.lower():
-                            self.serial_connection.write(b"scan")  
+                            self.serial_connection.write(b"scan")
                             time.sleep(2)
 
                         self.log.emit("'-U-' detected - pause 1 s")
-                        max_retries += 1
+                        max_retries += 1  
                         time.sleep(1)
                         break
 
@@ -725,16 +744,20 @@ class ConfigureWorker(QObject):
                         r in allBatConn for r in self.devices[1:]
                     ):
                         if "win" in os_name.lower():
-                            self.serial_connection.write(b"s")  # stop work mode for >= v3.0 at start 
+                            self.serial_connection.write(b"s")  
                             time.sleep(2)
-                            self.serial_connection.write(b"scan")  
+                            # self.serial_connection.write(b"scan") # The loop does it
 
-                        self.log.emit("'SW_CPU_RESET' detected - pause 1 s")
+                        self.log.emit("'SW_CPU_RESET' detected - Waiting 5s for reboot...")
+                        
                         max_retries += 1
-                        time.sleep(1)
+                        time.sleep(2) 
+                        # Flush the "configsip..." boot garbage so it doesn't confuse the next read
+                        self.serial_connection.reset_input_buffer()
+                        
                         break
 
-                    # normal processing (unchanged from reference)
+                    # normal processing
                     if line.startswith("found") or line.startswith("search"):
                         parts = line.split(",")
                         if len(parts) >= 2:
@@ -756,12 +779,13 @@ class ConfigureWorker(QObject):
                 else:
                     time.sleep(0.05)  # small anti-spin delay
 
-            # rule-1: nothing arrived at all → retry
+            # rule-1: nothing arrived at all -> retry
             if not got_data:
                 self.log.emit("No reply within timeout - retry")
+                attempt += 1 # Increment attempt counter
                 continue
 
-            # --- pass/fail evaluation (identical to reference) -------------
+            # --- pass/fail evaluation -------------------------------------
             STICAN_PASS = True
             for device_line in self.devices[1:]:
                 if device_line in allBatConn:
@@ -773,7 +797,9 @@ class ConfigureWorker(QObject):
 
             if STICAN_PASS:
                 break
-            # else natural loop continues to next attempt
+            
+            # Increment attempt counter for next iteration
+            attempt += 1
 
         # --- final report ---------------------------------------------------
         self.serial_connection.reset_input_buffer()
@@ -783,13 +809,13 @@ class ConfigureWorker(QObject):
             self.log.emit("CONFIGURATION RESULT: SUCCESS!")
             self.progress.emit(step_index, "PASS")
             self.success.emit()
+            self.finished.emit()
         else:
-            self.log.emit("CONFIGURATION RESULT: FAIL!")
+            self.log.emit("CONFIGURATION RESULT: FAIL")
+            self.devices_not_found.emit(not_found_batteries)
             self.progress.emit(step_index, "FAIL")
-            not_found_batteries_filtered = list(set(not_found_batteries))
-            self.devices_not_found.emit(not_found_batteries_filtered)
-
-        self.clean_conn()
+            self.error.emit("Error: Not all devices were detected.")
+            self.finished.emit()
 
     def run(self):
         """Perform the full configuration in discrete steps."""

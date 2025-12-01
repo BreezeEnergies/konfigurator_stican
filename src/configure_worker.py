@@ -563,15 +563,17 @@ class ConfigureWorker(QObject):
         try:
             self.serial_connection.reset_input_buffer()  # Still important to clear old data
 
-            max_full_retries = 4
+            max_full_retries = 3
             fail_full = True
 
             for full_attempt in range(max_full_retries):
                 device_lines = []
-                max_retries = 5
+                max_retries = 4
                 for attempt in range(max_retries):
                     self.serial_connection.write(b"batread")
                     self.log.emit("Send `batread`")
+
+                    time.sleep(2 + (full_attempt + attempt) * 0.5)
 
                     # header = self.serial_connection.read(2) # prone to errors
                     header_line = self.serial_connection.readline().decode("ascii", errors="ignore").strip()

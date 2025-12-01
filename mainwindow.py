@@ -132,6 +132,47 @@ class MainWindow(QMainWindow):
             False  # Send signal at the connection only once - for StiCAN > V3.0
         )
 
+        ### DEBUG --------------------------------------------------
+        # Add batteries on start
+        # DEFAULT_SN = [
+        #     "BR4830TWFO10121J01", "BR4830TWFO10121J02", "BR4830TWFO10121J03",
+        #     "BR4830TWFO10121J04"
+        # ]
+
+        # DEFAULT_SN = [
+        #     "BR4830TWFO10121J01", "BR4830TWFO10121J02", "BR4830TWFO10121J03",
+        #     "BR4830TWFO10121J04", "BR4830TWFO10121J05", "BR4830TWFO10121J06",
+        #     "BR4830TWFO10121J07", "BR4830TWFO10121J08", "BR4830TWFO10121J09",
+        #     "BR4830TWFO10121J10", "BR4830TWFO10121J11", "BR4830TWFO10121J12",
+        #     "BR4830TWFO10121J13", "BR4830TWFO10121J14", "BR4830TWFO10121J15",
+        #     "BR4830TWFO10121J16", "BR4830TWFO10121J17", "BR4830TWFO10121J18"
+        # ]
+
+        # DEFAULT_SN = [
+        #     "BR4830TWFO10121J01", "BR4830TWFO10121J02", "BR4830TWFO10121J03",
+        #     "BR4830TWFO10121J04", "BR4830TWFO10121J05", "BR4830TWFO10121J06",
+        #     "BR4830TWFO10121J07", "BR4830TWFO10121J08", "BR4830TWFO10121J09",
+        #     "BR4830TWFO10121J10", "BR4830TWFO10121J11", "BR4830TWFO10121J12",
+        #     "BR4830TWFO10121J13", "BR4830TWFO10121J14", "BR4830TWFO10121J15",
+        #     "BR4830TWFO10121J16", "BR4830TWFO10121J17", "BR4830TWFO10121J18",
+        #     "BR4830TWFO10121J19", "BR4830TWFO10121J20", "BR4830TWFO10121J21",
+        #     "BR4830TWFO10121J22", "BR4830TWFO10121J23", "BR4830TWFO10121J24",
+        #     "BR4830TWFO10121J25", "BR4830TWFO10121J26", "BR4830TWFO10121J27"
+        # ]
+
+        # ### Add placeholders
+        # # Create each row with the ORIGINAL method, then overwrite its text
+        # for sn in DEFAULT_SN:
+        #     self.add_battery_row()  # creates row with whatever structure it uses
+        #     # Find the QLineEdit among the widgets in the last row
+        #     for widget in self.battery_rows[-1].values():
+        #         if isinstance(widget, QLineEdit):
+        #             widget.setText(sn)
+        #             break
+        # # Build the exact list the worker expects  ["18", sn1, sn2, …]
+        # self.devices = ["18"] + DEFAULT_SN
+        # # ----------------------------------------------------------
+
         self.detect_system()
         self.print_system_params()
 
@@ -924,6 +965,7 @@ class MainWindow(QMainWindow):
             spacer = QWidget()
             spacer.setFixedSize(75, 0)  # Adjust the width as needed
             row_layout.addWidget(spacer)
+
         else:
             # Create input fields for other rows
             serial_number_input = QLineEdit()

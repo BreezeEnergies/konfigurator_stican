@@ -13,8 +13,6 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QScrollArea,
-    QWidget,
-    QVBoxLayout,
 )
 from PySide6.QtCore import (
     QTimer,
@@ -32,7 +30,6 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import QMovie, QValidator
 
-
 from datetime import datetime
 from ui_form import Ui_MainWindow
 
@@ -45,6 +42,23 @@ import serial
 import serial.tools.list_ports
 
 from bleak import BleakScanner
+
+# Import worker classes and utilities
+from src.command_worker import CommandWorker
+from src.configure_worker import ConfigureWorker
+from src.loading_animation import LoadingAnimation
+
+def resource_path(relative_path):
+    """Get absolute path to resource, works for dev and for PyInstaller"""
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
+
+ANIMATION_FILES = [resource_path("loading-snake-io.gif")]
 
 APPLICATION_VERSION = "1.2.5"
 APPLICATION_AUTHORS = ["Maciej Hejlasz <DeimosMH>", ""]

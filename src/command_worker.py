@@ -1,50 +1,6 @@
-from PySide6.QtWidgets import (
-    QApplication,
-    QMainWindow,
-    QHBoxLayout,
-    QLineEdit,
-    QPushButton,
-    QWidget,
-    QLabel,
-    QVBoxLayout,
-    QMessageBox,
-    QDialog,
-    QTextEdit,
-    QTableWidget,
-    QTableWidgetItem,
-    QScrollArea,
-    QWidget,
-    QVBoxLayout,
-)
-from PySide6.QtCore import (
-    QTimer,
-    QObject,
-    QThread,
-    Signal,
-    Slot,
-    QMetaObject,
-    Qt,
-    QTranslator,
-    QLocale,
-    QLibraryInfo,
-    QCoreApplication,
-    QSysInfo,
-)
-from PySide6.QtGui import QMovie, QValidator
-
-
-from datetime import datetime
-from ui_form import Ui_MainWindow
-
-import os
-import sys
-import queue
-import asyncio
+from PySide6.QtCore import QObject, Signal
 import time
 import serial
-import serial.tools.list_ports
-
-from bleak import BleakScanner
 
 
 class CommandWorker(QObject):

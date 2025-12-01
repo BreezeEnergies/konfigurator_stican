@@ -185,6 +185,11 @@ class Ui_MainWindow(object):
 
         self.advComandLayout.addWidget(self.advSendCommand)
 
+        self.advConnDbgCommand = QPushButton(self.advancedTab)
+        self.advConnDbgCommand.setObjectName(u"advConnDbgCommand")
+
+        self.advComandLayout.addWidget(self.advConnDbgCommand)
+
 
         self.verticalLayout_3.addLayout(self.advComandLayout)
 
@@ -332,6 +337,7 @@ class Ui_MainWindow(object):
 "</style></head><body style=\" font-family:'Ubuntu Sans'; font-size:11pt; font-weight:400; font-style:normal;\">\n"
 "<p style=\" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\">Command:</p></body></html>", None))
         self.advSendCommand.setText(QCoreApplication.translate("MainWindow", u"Send", None))
+        self.advConnDbgCommand.setText(QCoreApplication.translate("MainWindow", u"Connect", None))
         self.advSaveLog.setText(QCoreApplication.translate("MainWindow", u"SaveLog", None))
         self.tabWidget.setTabText(self.tabWidget.indexOf(self.advancedTab), QCoreApplication.translate("MainWindow", u"Advanced", None))
         self.EN_Button.setText(QCoreApplication.translate("MainWindow", u"EN", None))

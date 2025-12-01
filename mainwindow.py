@@ -27,6 +27,7 @@ from PySide6.QtCore import (
     QLibraryInfo,
     QCoreApplication,
     QSysInfo,
+    Q_ARG,
 )
 from PySide6.QtGui import QMovie, QValidator
 
@@ -38,6 +39,7 @@ import sys
 import queue
 import asyncio
 import time
+import threading
 import serial
 import serial.tools.list_ports
 
@@ -65,6 +67,9 @@ APPLICATION_AUTHORS = ["Maciej Hejlasz <DeimosMH>", ""]
 APPLICATION_OWNERS = "Breeze Energies Sp. z o.o."
 
 class MainWindow(QMainWindow):
+    # Signal for thread-safe device discovery
+    device_discovered = Signal(str, str, int)  # name, address, rssi
+    
     def __init__(self, parent=None):
         super().__init__(parent)
         self.ui = Ui_MainWindow()
@@ -81,6 +86,11 @@ class MainWindow(QMainWindow):
         self.ui.EN_Button.clicked.connect(lambda: self.change_language("en"))
         self.ui.PL_Button.clicked.connect(lambda: self.change_language("pl"))
 
+        # Advanced window
+        # Persistent debug connection
+        self.debug_serial_conn = None
+        self.command_mode_active = False
+
         # Load default language
         self.change_language(self.current_language)
 
@@ -95,6 +105,10 @@ class MainWindow(QMainWindow):
         self.ui.advSaveLog.clicked.connect(self.save_log)
         self.ui.advSendCommand.clicked.connect(self.send_command)
         self.ui.scanDevicesButton.clicked.connect(self.scan_for_devices)
+        self.ui.advConnDbgCommand.clicked.connect(self.toggle_debug_connection)
+        
+        # Connect signal for thread-safe device discovery
+        self.device_discovered.connect(self._add_device_to_scan_table)
         # self.ui.scanDevicesButton.clicked.connect(lambda: self.scan_for_devices())
 
         # Initialize list to store battery row data
@@ -148,30 +162,30 @@ class MainWindow(QMainWindow):
         #     "BR4830TWFO10121J16", "BR4830TWFO10121J17", "BR4830TWFO10121J18"
         # ]
 
-        # DEFAULT_SN = [
-        #     "BR4830TWFO10121J01", "BR4830TWFO10121J02", "BR4830TWFO10121J03",
-        #     "BR4830TWFO10121J04", "BR4830TWFO10121J05", "BR4830TWFO10121J06",
-        #     "BR4830TWFO10121J07", "BR4830TWFO10121J08", "BR4830TWFO10121J09",
-        #     "BR4830TWFO10121J10", "BR4830TWFO10121J11", "BR4830TWFO10121J12",
-        #     "BR4830TWFO10121J13", "BR4830TWFO10121J14", "BR4830TWFO10121J15",
-        #     "BR4830TWFO10121J16", "BR4830TWFO10121J17", "BR4830TWFO10121J18",
-        #     "BR4830TWFO10121J19", "BR4830TWFO10121J20", "BR4830TWFO10121J21",
-        #     "BR4830TWFO10121J22", "BR4830TWFO10121J23", "BR4830TWFO10121J24",
-        #     "BR4830TWFO10121J25", "BR4830TWFO10121J26", "BR4830TWFO10121J27"
-        # ]
+        DEFAULT_SN = [
+            "BR4830TWFO10121J01", "BR4830TWFO10121J02", "BR4830TWFO10121J03",
+            "BR4830TWFO10121J04", "BR4830TWFO10121J05", "BR4830TWFO10121J06",
+            "BR4830TWFO10121J07", "BR4830TWFO10121J08", "BR4830TWFO10121J09",
+            "BR4830TWFO10121J10", "BR4830TWFO10121J11", "BR4830TWFO10121J12",
+            "BR4830TWFO10121J13", "BR4830TWFO10121J14", "BR4830TWFO10121J15",
+            "BR4830TWFO10121J16", "BR4830TWFO10121J17", "BR4830TWFO10121J18",
+            "BR4830TWFO10121J19", "BR4830TWFO10121J20", "BR4830TWFO10121J21",
+            "BR4830TWFO10121J22", "BR4830TWFO10121J23", "BR4830TWFO10121J24",
+            "BR4830TWFO10121J25", "BR4830TWFO10121J26", "BR4830TWFO10121J27"
+        ]
 
-        # ### Add placeholders
-        # # Create each row with the ORIGINAL method, then overwrite its text
-        # for sn in DEFAULT_SN:
-        #     self.add_battery_row()  # creates row with whatever structure it uses
-        #     # Find the QLineEdit among the widgets in the last row
-        #     for widget in self.battery_rows[-1].values():
-        #         if isinstance(widget, QLineEdit):
-        #             widget.setText(sn)
-        #             break
-        # # Build the exact list the worker expects  ["18", sn1, sn2, …]
-        # self.devices = ["18"] + DEFAULT_SN
-        # # ----------------------------------------------------------
+        ### Add placeholders
+        # Create each row with the ORIGINAL method, then overwrite its text
+        for sn in DEFAULT_SN:
+            self.add_battery_row()  # creates row with whatever structure it uses
+            # Find the QLineEdit among the widgets in the last row
+            for widget in self.battery_rows[-1].values():
+                if isinstance(widget, QLineEdit):
+                    widget.setText(sn)
+                    break
+        # Build the exact list the worker expects  ["18", sn1, sn2, …]
+        self.devices = ["18"] + DEFAULT_SN
+        # ----------------------------------------------------------
 
         self.detect_system()
         self.print_system_params()
@@ -190,102 +204,160 @@ class MainWindow(QMainWindow):
     def scan_for_devices(self):
         self.ui.scanDevicesButton.setEnabled(False)
 
-        # Create a dialog to display the results
+        # Create dialog
         dialog = QDialog(self)
         dialog.setWindowTitle("Bluetooth Devices")
-        dialog.setMinimumSize(680, 600)  # Set minimum size to 300x600
+        dialog.setMinimumSize(680, 600)
 
-        # Create a QTableWidget to display the results
+        # Create table
         table_widget = QTableWidget(dialog)
         table_widget.setColumnCount(3)
         table_widget.setHorizontalHeaderLabels(["Name", "Address", "Signal"])
-        table_widget.setColumnWidth(0, 300)  # Set Name column width to 300px
-        table_widget.setColumnWidth(1, 200)  # Set Address column width to 200px
-        table_widget.setColumnWidth(2, 100)  # Set Signal column width to 100px
+        table_widget.setColumnWidth(0, 300)
+        table_widget.setColumnWidth(1, 200)
+        table_widget.setColumnWidth(2, 100)
 
-        # Create a layout and add the QTableWidget
+        # Layout
         layout = QVBoxLayout(dialog)
         layout.addWidget(table_widget)
 
-        # Add a close button
         close_button = QPushButton("Close", dialog)
         close_button.clicked.connect(dialog.accept)
         layout.addWidget(close_button)
 
-        # Show the dialog
+        # Initialize scan state
+        self._scan_state = {
+            'dialog': dialog,
+            'table': table_widget,
+            'seen': set(),
+            'active': True
+        }
+
+        # Show dialog
         dialog.show()
 
-        # List to store devices and a set to track seen addresses
-        devices_list = []
-        seen_addresses = set()
-
-        # Callback function to handle discovered devices
+        # Callback (captures self._scan_state)
         def detection_callback(device, advertisement_data):
-            # Check if the device has a name, is not a duplicate, and starts with the desired prefixes
-            if (
-                device.name
-                and device.address not in seen_addresses
-                and device.name.startswith(("BR", "LC", "NB", "AP"))
-            ):
-                # Add device to the list with its RSSI
-                devices_list.append((device, advertisement_data.rssi))
-                seen_addresses.add(device.address)
-                # Sort devices by RSSI (from lowest to highest)
-                devices_list.sort(key=lambda x: x[1], reverse=True)
+            
+            print(f"detection_callback: state {self._scan_state}")
+            print(f"detection_callback: device {device.name} {device.address}")
+            state = self._scan_state
+            if state is None or not state['active']:
+                return
+            if (device.name and device.address not in state['seen'] 
+                and device.name.startswith(("BR", "LC", "NB", "AP"))):
+                state['seen'].add(device.address)
+                # Thread-safe UI update
+                self.device_discovered.emit(device.name, device.address, advertisement_data.rssi)
 
-                # Update the QTableWidget with the results
-                table_widget.setRowCount(len(devices_list))
-                for row, (d, rssi) in enumerate(devices_list):
-                    table_widget.setItem(row, 0, QTableWidgetItem(d.name))
-                    table_widget.setItem(row, 1, QTableWidgetItem(d.address))
-                    table_widget.setItem(row, 2, QTableWidgetItem(f"{rssi} dBm"))
-
-        # Create a BleakScanner with the callback
-        scanner = BleakScanner(detection_callback)
-
-        if "win" == self.SYSTEM:
-            import threading
-
-            # Function to run the scanner in a separate thread
-            def run_scanner():
-                async def scanner_task():
-                    self.log("Scanning for Bluetooth devices...")
-                    await scanner.start()
-                    await asyncio.sleep(5)  # Scan for 5 seconds
-                    await scanner.stop()
-                    self.log("Bluetooth scan completed.")
-
-                # Run the event loop in a new thread
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.run_until_complete(scanner_task())
-
-            # Start the scanner in a new thread
-            scanner_thread = threading.Thread(target=run_scanner)
-            scanner_thread.start()
-
-            # Execute the dialog to block until closed
-            dialog.exec()
-
-            # Wait for the scanner thread to finish
-            scanner_thread.join()
-
-        if "lin" == self.SYSTEM:
-            # Run the scanner
-            async def run_scanner():
+        # Scanner thread
+        def run_scanner():
+            async def scanner_task():
                 self.log("Scanning for Bluetooth devices...")
+                scanner = BleakScanner(detection_callback)
                 await scanner.start()
-                await asyncio.sleep(3)  # Scan for 3 seconds
+                await asyncio.sleep(5)
                 await scanner.stop()
                 self.log("Bluetooth scan completed.")
 
-            # Run the asynchronous function
-            asyncio.run(run_scanner())
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(scanner_task())
 
-            # Execute the dialog to block until closed
-            dialog.exec()
+        scanner_thread = threading.Thread(target=run_scanner, daemon=True)
+        scanner_thread.start()
 
+        # Block until dialog closed
+        dialog.exec()
+        
+        # Cleanup: deactivate and clear state
+        if self._scan_state:
+            self._scan_state['active'] = False
+        self._scan_state = None
+        
         self.ui.scanDevicesButton.setEnabled(True)
+
+    @Slot(str, str, int)
+    def _add_device_to_scan_table(self, name, address, rssi):
+        """Thread-safe table update with exception handling"""
+        try:
+            if self._scan_state is None:
+                return  # Scan finished or dialog closed
+                
+            table = self._scan_state['table']
+            if table is None:
+                return
+                
+            # Check for duplicates and update RSSI
+            for row in range(table.rowCount()):
+                item = table.item(row, 1)
+                if item and item.text() == address:
+                    table.setItem(row, 2, QTableWidgetItem(f"{rssi} dBm"))
+                    return
+            
+            # Add new device row
+            row = table.rowCount()
+            table.insertRow(row)
+            table.setItem(row, 0, QTableWidgetItem(name))
+            table.setItem(row, 1, QTableWidgetItem(address))
+            table.setItem(row, 2, QTableWidgetItem(f"{rssi} dBm"))
+            
+        except RuntimeError:
+            # Qt object was deleted (dialog closed) - ignore safely
+            return
+
+    def toggle_debug_connection(self):
+        """Establish persistent connection and enter command mode for v3.0+ devices"""
+        if self.debug_serial_conn and self.debug_serial_conn.is_open:
+            # Close existing connection
+            self.debug_serial_conn.close()
+            self.debug_serial_conn = None
+            self.command_mode_active = False
+            self.ui.advConnDbgCommand.setText("Connect")
+            self.log("Debug connection closed")
+            return
+
+        # Check device detection
+        if not self.stican_detected:
+            QMessageBox.warning(self, "No Device", "StiCAN device not detected.")
+            return
+
+        # Get port
+        port = self.ui.detectedPortLabel.text().replace("Port: ", "")
+        if not port or "N/A" in port:
+            QMessageBox.warning(self, "No Port", "No valid port available.")
+            return
+
+        try:
+            # Open serial connection
+            conn = serial.Serial(port, 115200, timeout=1)
+            
+            # For Windows (v3.0+ devices), enter command mode
+            if self.SYSTEM == "win":
+                self.log("Sending 's' to enter command mode...")
+                conn.write(b"s")
+                
+                start_time = time.time()
+                response = ""
+                while time.time() - start_time < 5:
+                    chunk = conn.read(conn.in_waiting or 1).decode(errors='ignore')
+                    if chunk:
+                        response += chunk
+                        time.sleep(0.1)
+                        conn.read(conn.in_waiting)  
+                    time.sleep(0.1)
+                else:
+                    self.log("Warning: Command mode not confirmed, continuing anyway")
+
+            # Store connection
+            self.debug_serial_conn = conn
+            self.command_mode_active = True
+            self.ui.advConnDbgCommand.setText("Disconnect")
+            self.log(f"Persistent debug connection established on {port}")
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Connection Error", f"Failed to connect: {e}")
+            self.log(f"Debug connection failed: {e}")
 
     def detect_system(self):
         os_name = QSysInfo.productType()
@@ -725,12 +797,6 @@ class MainWindow(QMainWindow):
             # Broken in Windows
             if self.stican_detected_stop_sig is False:
                 if self.SYSTEM == "lin":
-                    # Send once after connection
-                    ports = list(serial.tools.list_ports.comports())
-                    stican_port = next(
-                        (p.device for p in ports if p.vid == 0x10C4 and p.pid == 0xEA60),
-                        None,
-                    )
                     conn = serial.Serial(stican_port, 115200, timeout=1)
                     conn.write(b"s")  # stop work mode for >= v3.0
                 self.stican_detected_stop_sig = True
@@ -1071,54 +1137,88 @@ class MainWindow(QMainWindow):
             )
 
     def send_command(self):
-        # Get the command from advCommandText
         command = self.ui.advCommandText.toPlainText().strip()
-        if not command:
-            QMessageBox.warning(
-                self, "Invalid Command", "Please enter a command to send."
-            )
+        if not command: 
             return
 
-        # Get the port
-        port = self.ui.detectedPortLabel.text().replace("Port: ", "")
-        if not port or "N/A" in port:
-            QMessageBox.warning(self, "No Device", "StiCAN device not detected.")
-            return
+        # If persistent debug connection is active, use it
+        if self.debug_serial_conn and self.debug_serial_conn.is_open:
+            try:
+                self.log(f"Sending: {command}")
+                self.debug_serial_conn.write(command.encode("utf-8") )
+                self.debug_serial_conn.flush()
+                
+                # Read response with timeout
+                response_chunks = []
+                start_time = time.time()
+                
+                while time.time() - start_time < 3:
+                    if self.debug_serial_conn.in_waiting > 0:
+                        chunk = self.debug_serial_conn.read(self.debug_serial_conn.in_waiting).decode(errors='ignore')
+                        response_chunks.append(chunk)
+                    
+                    # Small delay to allow full response to arrive
+                    time.sleep(0.05)
+                
+                response = ''.join(response_chunks).strip()
+                self.log(f"Response: {response}")
+                
+            except Exception as e:
+                self.log(f"Command error: {e}")
+                QMessageBox.critical(self, "Command Failed", str(e))
+        # else:
+        #     # Original behavior using CommandWorker
+        #     port = self.ui.detectedPortLabel.text().replace("Port: ", "")
+        #     if not port or "N/A" in port:
+        #         QMessageBox.warning(self, "No Device", "StiCAN device not detected.")
+        #         return
 
-        # Disable the send button
-        self.ui.advSendCommand.setEnabled(False)
+        #     # Disable the send button
+        #     self.ui.advSendCommand.setEnabled(False)
 
-        # Create worker and thread
-        self.command_thread = QThread()
-        self.command_worker = CommandWorker(command, port)
-        self.command_worker.moveToThread(self.command_thread)
+        #     # Create worker and thread
+        #     self.command_thread = QThread()
+        #     self.command_worker = CommandWorker(command, port)
+        #     self.command_worker.moveToThread(self.command_thread)
 
-        # Connect signals and slots
-        self.command_thread.started.connect(self.command_worker.run)
-        self.command_worker.finished.connect(self.command_thread.quit)
-        self.command_worker.finished.connect(self.command_worker.deleteLater)
-        self.command_thread.finished.connect(self.command_thread.deleteLater)
-        self.command_worker.log.connect(self.log_message)
-        # self.command_worker.error.connect(self.handle_error)
-        self.command_thread.finished.connect(
-            lambda: self.ui.advSendCommand.setEnabled(True)
-        )
+        #     # Connect signals and slots
+        #     self.command_thread.started.connect(self.command_worker.run)
+        #     self.command_worker.finished.connect(self.command_thread.quit)
+        #     self.command_worker.finished.connect(self.command_worker.deleteLater)
+        #     self.command_thread.finished.connect(self.command_thread.deleteLater)
+        #     self.command_worker.log.connect(self.log_message)
+        #     self.command_thread.finished.connect(
+        #         lambda: self.ui.advSendCommand.setEnabled(True)
+        #     )
 
-        # Start the thread
-        self.command_thread.start()
+        #     # Start the thread
+        #     self.command_thread.start()
+
+
+
 
     def closeEvent(self, event):
-        # Close the serial connection when the window is closed
-        if hasattr(self, "serial_connection"):
-            if self.serial_connection.is_open:
-                self.serial_connection.close()
+        # Close persistent debug connection if open
+        if hasattr(self, 'debug_serial_conn') and self.debug_serial_conn and self.debug_serial_conn.is_open:
+            self.debug_serial_conn.close()
+            self.log("Persistent debug connection closed on exit")
 
-        # Wait for the command thread to finish
+        # Stop the detection timer first
+        if hasattr(self, 'timer'):
+            self.timer.stop()
+        
+        # Wait for configuration thread to finish
+        if hasattr(self, "thread"):
+            if self.thread.isRunning():
+                self.thread.quit()
+                self.thread.wait()
+
+        # Wait for command thread to finish
         if hasattr(self, "command_thread"):
             if self.command_thread.isRunning():
                 self.command_thread.quit()
                 self.command_thread.wait()
-
+        
         event.accept()
 
 if __name__ == "__main__":

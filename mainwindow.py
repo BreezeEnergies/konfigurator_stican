@@ -791,6 +791,7 @@ class MainWindow(QMainWindow):
                 )
 
             # Re-enable buttons
+            self.ui.advConnDbgCommand.setEnabled(False)
             self.ui.configureSticanButton.setEnabled(True)
             self.ui.addBatteryButton.setEnabled(True)
 
@@ -838,6 +839,7 @@ class MainWindow(QMainWindow):
             return
 
         # Disable Configure and Add Battery buttons
+        self.ui.advConnDbgCommand.setEnabled(False)
         self.ui.configureSticanButton.setEnabled(False)
         self.ui.addBatteryButton.setEnabled(False)
 
@@ -887,6 +889,7 @@ class MainWindow(QMainWindow):
 
     def configuration_finished(self):
         # Re-enable buttons
+        self.ui.advConnDbgCommand.setEnabled(True)
         self.ui.configureSticanButton.setEnabled(True)
         self.ui.addBatteryButton.setEnabled(True)
 

@@ -1196,28 +1196,36 @@ class MainWindow(QMainWindow):
 
 
 
-
     def closeEvent(self, event):
         # Close persistent debug connection if open
         if hasattr(self, 'debug_serial_conn') and self.debug_serial_conn and self.debug_serial_conn.is_open:
             self.debug_serial_conn.close()
             self.log("Persistent debug connection closed on exit")
 
-        # Stop the detection timer first
-        if hasattr(self, 'timer'):
+        if hasattr(self, 'timer'): # Stop detection timer
             self.timer.stop()
         
-        # Wait for configuration thread to finish
-        if hasattr(self, "thread"):
-            if self.thread.isRunning():
-                self.thread.quit()
-                self.thread.wait()
+        if hasattr(self, "config_thread") and self.config_thread is not None:
+            try:
+                if self.config_thread.isRunning():
+                    self.config_thread.quit()
+                    self.config_thread.wait()
+            except RuntimeError:
+                print("Runtime error - but config_thread already deleted")
+                pass
+            finally:
+                self.config_thread = None
 
-        # Wait for command thread to finish
-        if hasattr(self, "command_thread"):
-            if self.command_thread.isRunning():
-                self.command_thread.quit()
-                self.command_thread.wait()
+        if hasattr(self, "command_thread") and self.command_thread is not None:
+            try:
+                if self.command_thread.isRunning():
+                    self.command_thread.quit()
+                    self.command_thread.wait()
+            except RuntimeError:
+                print("Runtime error - but command_thread already deleted")
+                pass
+            finally:
+                self.command_thread = None
         
         event.accept()
 

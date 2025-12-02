@@ -291,6 +291,9 @@ class MainWindow(QMainWindow):
         close_button.clicked.connect(dialog.accept)
         layout.addWidget(close_button)
 
+        # Thread-safe flag separate from the scan state dict
+        self._scan_active = True
+
         # Initialize scan state
         self._scan_state = {
             'dialog': dialog,
@@ -302,20 +305,54 @@ class MainWindow(QMainWindow):
         # Show dialog
         dialog.show()
 
-        # Callback (captures self._scan_state)
+        # Callback - Fix 3: Copy state locally immediately
         def detection_callback(device, advertisement_data):
-            
-            print(f"detection_callback: state {self._scan_state}")
-            print(f"detection_callback: device {device.name} {device.address}")
-            state = self._scan_state
-            if state is None or not state['active']:
-                return
-            if (device.name and device.address not in state['seen'] 
-                and device.name.startswith(("BR", "LC", "NB", "AP"))):
-                state['seen'].add(device.address)
-                # Thread-safe UI update
-                self.device_discovered.emit(device.name, device.address, advertisement_data.rssi)
-
+            try:
+                print(f"[CB] Started for device: {device.address}")
+                
+                # Check atomic flag first
+                print(f"[CB] _scan_active: {self._scan_active}")
+                if not self._scan_active:
+                    print("[CB] _scan_active is False, returning")
+                    return
+                
+                # Copy state locally - work with local 'state' variable only
+                state = self._scan_state
+                print(f"[CB] State retrieved: {state is not None}")
+                
+                if state is None:
+                    print("[CB] State is None, returning")
+                    return
+                
+                # Use local state copy for all checks
+                if not state.get('active', False):
+                    print(f"[CB] State not active: {state.get('active')}")
+                    return
+                
+                print(f"[CB] Checking device: {device.name} ({device.address})")
+                
+                if not device.name:
+                    print(f"[CB] Device has no name, returning")
+                    return
+                
+                if device.address in state['seen']:
+                    print(f"[CB] Device already seen: {device.address}")
+                    return
+                
+                if device.name.startswith(("BR", "LC", "NB", "AP")):
+                    print(f"[CB] Device MATCHED, adding to seen set")
+                    state['seen'].add(device.address)
+                    
+                    print(f"[CB] Emitting signal for: {device.name}")
+                    self.device_discovered.emit(device.name, device.address, advertisement_data.rssi)
+                    print(f"[CB] Signal emitted successfully")
+                else:
+                    print(f"[CB] Device name doesn't match pattern: {device.name}")
+                    
+            except Exception as e:
+                print(f"[CB] CRASH: {e}")
+                import traceback
+                traceback.print_exc()
         # Scanner thread
         def run_scanner():
             async def scanner_task():
@@ -336,7 +373,8 @@ class MainWindow(QMainWindow):
         # Block until dialog closed
         dialog.exec()
         
-        # Cleanup: deactivate and clear state
+        # Cleanup: Set atomic flag BEFORE clearing state (prevents race condition)
+        self._scan_active = False
         if self._scan_state:
             self._scan_state['active'] = False
         self._scan_state = None
@@ -350,8 +388,15 @@ class MainWindow(QMainWindow):
             if self._scan_state is None:
                 return  # Scan finished or dialog closed
                 
-            table = self._scan_state['table']
+            table = self._scan_state.get('table')
             if table is None:
+                return
+            
+            # Fix 2: Check if Qt object is still valid (not deleted)
+            try:
+                table.isVisible()
+            except RuntimeError:
+                print(f"[RCB] Runtime error - Table widget has been deleted")
                 return
                 
             # Check for duplicates and update RSSI

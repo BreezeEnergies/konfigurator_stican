@@ -1196,38 +1196,28 @@ class MainWindow(QMainWindow):
 
 
 
-    def closeEvent(self, event):
-        # Close persistent debug connection if open
-        if hasattr(self, 'debug_serial_conn') and self.debug_serial_conn and self.debug_serial_conn.is_open:
-            self.debug_serial_conn.close()
-            self.log("Persistent debug connection closed on exit")
+def closeEvent(self, event):
+    if hasattr(self, 'timer') and self.timer is not None:
+        self.timer.stop()
 
-        if hasattr(self, 'timer'): # Stop detection timer
-            self.timer.stop()
-        
-        if hasattr(self, "config_thread") and self.config_thread is not None:
-            try:
-                if self.config_thread.isRunning():
-                    self.config_thread.quit()
-                    self.config_thread.wait()
-            except RuntimeError:
-                print("Runtime error - but config_thread already deleted")
-                pass
-            finally:
-                self.config_thread = None
+    debug_conn = getattr(self, 'debug_serial_conn', None)
+    if debug_conn and debug_conn.is_open:
+        debug_conn.close()
+        self.log("Persistent debug connection closed on exit")
 
-        if hasattr(self, "command_thread") and self.command_thread is not None:
+    for attr_name in ['config_thread', 'command_thread']:
+        thread = getattr(self, attr_name, None)
+        if thread is not None:
             try:
-                if self.command_thread.isRunning():
-                    self.command_thread.quit()
-                    self.command_thread.wait()
+                if thread.isRunning():
+                    thread.quit()
+                    thread.wait(5000)  # Add timeout to prevent hanging
             except RuntimeError:
-                print("Runtime error - but command_thread already deleted")
-                pass
+                self.log(f"{attr_name} was already cleaned up by Qt") # object already deleted - safe to ignore
             finally:
-                self.command_thread = None
-        
-        event.accept()
+                setattr(self, attr_name, None) # reference to prevent re-checking dead object
+
+    event.accept()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

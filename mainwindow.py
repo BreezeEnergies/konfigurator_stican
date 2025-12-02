@@ -419,6 +419,12 @@ class MainWindow(QMainWindow):
 
     def toggle_debug_connection(self):
         """Toggle debug connection with serial monitoring"""
+        self.log("=== DEBUG: toggle_debug_connection() started ===")
+        self.log(f"SYSTEM = {self.SYSTEM}")
+        self.log(f"stican_detected = {self.stican_detected}")
+        self.log(f"advConnDbgCommand text = {self.ui.advConnDbgCommand.text()}")
+        self.log(f"detectedPortLabel text = {self.ui.detectedPortLabel.text()}")
+        
         if self.debug_serial_conn and self.debug_serial_conn.is_open:
             if self.serial_reader_thread:
                 self.serial_reader_thread.stop()
@@ -427,7 +433,7 @@ class MainWindow(QMainWindow):
             self.debug_serial_conn.close()
             self.debug_serial_conn = None
             self.command_mode_active = False
-            self.ui.advConnDbgCommand.setText(QCoreApplication.translate("Connect"))
+            self.ui.advConnDbgCommand.setText(QCoreApplication.translate("MainWindow", "Connect"))
             self.log("Debug connection closed", direction="system")
             return
 
@@ -452,13 +458,29 @@ class MainWindow(QMainWindow):
             self.debug_serial_conn = conn
             self.command_mode_active = True
 
-            self.ui.advConnDbgCommand.setText(QCoreApplication.translate("Disconnect"))
+            self.ui.advConnDbgCommand.setText(QCoreApplication.translate("MainWindow","Disconnect"))
             self.log(f"Connected to {port}", direction="system")
             self.start_serial_monitor()
             
         except Exception as e:
-            QMessageBox.critical(self, "Connection Error", f"Failed to connect: {e}")
-            self.log(f"Debug connection failed: {e}", direction="system")
+            import traceback
+            tb = traceback.format_exc()
+            
+            self.log("=== DEBUG: Full exception trace ===")
+            self.log(tb)
+            self.log("====================================")
+            
+            QMessageBox.critical(
+                self, 
+                "Connection Error", 
+                f"Failed to connect: {e}\n\nDetails:\n{tb}"
+            )
+            
+            try:
+                with open("connection_error_debug.log", "w") as f:
+                    f.write(f"Error: {e}\n{tb}")
+            except:
+                pass
 
     def eventFilter(self, obj, event):
         """Intercept Enter key in advCommandText to send command"""

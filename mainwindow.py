@@ -28,6 +28,7 @@ from PySide6.QtCore import (
     QCoreApplication,
     QSysInfo,
     Q_ARG,
+    QEvent,  
 )
 from PySide6.QtGui import QMovie, QValidator
 
@@ -106,7 +107,10 @@ class MainWindow(QMainWindow):
         self.ui.advSendCommand.clicked.connect(self.send_command)
         self.ui.scanDevicesButton.clicked.connect(self.scan_for_devices)
         self.ui.advConnDbgCommand.clicked.connect(self.toggle_debug_connection)
-        
+
+        # Event filter for command text box (press enter to invoke command)
+        self.ui.advCommandText.installEventFilter(self)
+
         # Connect signal for thread-safe device discovery
         self.device_discovered.connect(self._add_device_to_scan_table)
         # self.ui.scanDevicesButton.clicked.connect(lambda: self.scan_for_devices())
@@ -189,6 +193,8 @@ class MainWindow(QMainWindow):
 
         self.detect_system()
         self.print_system_params()
+
+
 
     def show_devices_not_found(self, not_found_devices):
         not_found_message = (
@@ -358,6 +364,17 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Connection Error", f"Failed to connect: {e}")
             self.log(f"Debug connection failed: {e}")
+
+    def eventFilter(self, obj, event):
+        """Intercept Enter key in advCommandText to send command"""
+        if obj is self.ui.advCommandText and event.type() == QEvent.KeyPress:
+            # Check for Enter/Return key (both main and numpad)
+            if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+                # Allow Shift+Enter to insert newline
+                if not (event.modifiers() & Qt.ShiftModifier):
+                    self.send_command()
+                    return True  # Event consumed, don't propagate
+        return super().eventFilter(obj, event)
 
     def detect_system(self):
         os_name = QSysInfo.productType()
@@ -1155,7 +1172,7 @@ class MainWindow(QMainWindow):
                 response_chunks = []
                 start_time = time.time()
                 
-                while time.time() - start_time < 3:
+                while time.time() - start_time < 2:
                     if self.debug_serial_conn.in_waiting > 0:
                         chunk = self.debug_serial_conn.read(self.debug_serial_conn.in_waiting).decode(errors='ignore')
                         response_chunks.append(chunk)

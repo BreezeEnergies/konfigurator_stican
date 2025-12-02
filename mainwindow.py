@@ -226,29 +226,29 @@ class MainWindow(QMainWindow):
         #     "BR4830TWFO10121J16", "BR4830TWFO10121J17", "BR4830TWFO10121J18"
         # ]
 
-        DEFAULT_SN = [
-            "BR4830TWFO10121J01", "BR4830TWFO10121J02", "BR4830TWFO10121J03",
-            "BR4830TWFO10121J04", "BR4830TWFO10121J05", "BR4830TWFO10121J06",
-            "BR4830TWFO10121J07", "BR4830TWFO10121J08", "BR4830TWFO10121J09",
-            "BR4830TWFO10121J10", "BR4830TWFO10121J11", "BR4830TWFO10121J12",
-            "BR4830TWFO10121J13", "BR4830TWFO10121J14", "BR4830TWFO10121J15",
-            "BR4830TWFO10121J16", "BR4830TWFO10121J17", "BR4830TWFO10121J18",
-            "BR4830TWFO10121J19", "BR4830TWFO10121J20", "BR4830TWFO10121J21",
-            "BR4830TWFO10121J22", "BR4830TWFO10121J23", "BR4830TWFO10121J24",
-            "BR4830TWFO10121J25", "BR4830TWFO10121J26", "BR4830TWFO10121J27"
-        ]
+        # DEFAULT_SN = [
+        #     "BR4830TWFO10121J01", "BR4830TWFO10121J02", "BR4830TWFO10121J03",
+        #     "BR4830TWFO10121J04", "BR4830TWFO10121J05", "BR4830TWFO10121J06",
+        #     "BR4830TWFO10121J07", "BR4830TWFO10121J08", "BR4830TWFO10121J09",
+        #     "BR4830TWFO10121J10", "BR4830TWFO10121J11", "BR4830TWFO10121J12",
+        #     "BR4830TWFO10121J13", "BR4830TWFO10121J14", "BR4830TWFO10121J15",
+        #     "BR4830TWFO10121J16", "BR4830TWFO10121J17", "BR4830TWFO10121J18",
+        #     "BR4830TWFO10121J19", "BR4830TWFO10121J20", "BR4830TWFO10121J21",
+        #     "BR4830TWFO10121J22", "BR4830TWFO10121J23", "BR4830TWFO10121J24",
+        #     "BR4830TWFO10121J25", "BR4830TWFO10121J26", "BR4830TWFO10121J27"
+        # ]
 
-        ### Add placeholders
-        # Create each row with the ORIGINAL method, then overwrite its text
-        for sn in DEFAULT_SN:
-            self.add_battery_row()  # creates row with whatever structure it uses
-            # Find the QLineEdit among the widgets in the last row
-            for widget in self.battery_rows[-1].values():
-                if isinstance(widget, QLineEdit):
-                    widget.setText(sn)
-                    break
-        # Build the exact list the worker expects  ["18", sn1, sn2, …]
-        self.devices = ["18"] + DEFAULT_SN
+        # ### Add placeholders
+        # # Create each row with the ORIGINAL method, then overwrite its text
+        # for sn in DEFAULT_SN:
+        #     self.add_battery_row()  # creates row with whatever structure it uses
+        #     # Find the QLineEdit among the widgets in the last row
+        #     for widget in self.battery_rows[-1].values():
+        #         if isinstance(widget, QLineEdit):
+        #             widget.setText(sn)
+        #             break
+        # # Build the exact list the worker expects  ["18", sn1, sn2, …]
+        # self.devices = ["18"] + DEFAULT_SN
         # ----------------------------------------------------------
 
         self.detect_system()
@@ -374,7 +374,6 @@ class MainWindow(QMainWindow):
 
     def toggle_debug_connection(self):
         """Toggle debug connection with serial monitoring"""
-        # DISCONNECTING
         if self.debug_serial_conn and self.debug_serial_conn.is_open:
             if self.serial_reader_thread:
                 self.serial_reader_thread.stop()
@@ -384,10 +383,9 @@ class MainWindow(QMainWindow):
             self.debug_serial_conn = None
             self.command_mode_active = False
             self.ui.advConnDbgCommand.setText("Connect")
-            self.log("Debug connection closed")
+            self.log("Debug connection closed", direction="system")
             return
 
-        # CONNECTING (existing validation code...)
         if not self.stican_detected:
             QMessageBox.warning(self, "No Device", "StiCAN device not detected.")
             return
@@ -401,21 +399,20 @@ class MainWindow(QMainWindow):
             conn = serial.Serial(port, 115200, timeout=1)
             
             if self.SYSTEM == "win":
-                self.log("Sending 's' to enter command mode...")
+                self.log("Sending 's' to enter command mode...", direction="system")
                 conn.write(b"s")
-                time.sleep(0.1)  # Give device time to respond
-                conn.read(conn.in_waiting)  # Clear any immediate response
+                time.sleep(0.1)
+                conn.read(conn.in_waiting)
 
             self.debug_serial_conn = conn
             self.command_mode_active = True
             self.ui.advConnDbgCommand.setText("Disconnect")
-            
+            self.log(f"Connected to {port}", direction="system")
             self.start_serial_monitor()
-            self.log(f"Connected to {port} - monitoring started")
             
         except Exception as e:
             QMessageBox.critical(self, "Connection Error", f"Failed to connect: {e}")
-            self.log(f"Debug connection failed: {e}")
+            self.log(f"Debug connection failed: {e}", direction="system")
 
     def eventFilter(self, obj, event):
         """Intercept Enter key in advCommandText to send command"""
@@ -639,31 +636,34 @@ class MainWindow(QMainWindow):
             QCoreApplication.translate("MainWindow", "Configuration Successful"),
         )
 
-    def log_command_sent(self, command):
-        """Log sent command in VS Code Serial Monitor format"""
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        header = f"---- Sent utf8 encoded message: \"{command}\" ----"
-        self.ui.advConfigureOutputText.setTextColor(Qt.blue)
-        self.ui.advConfigureOutputText.append(header)
+    def log(self, message, direction="system"):
+        """
+        Log message with timestamp and direction arrows
+        
+        Args:
+            message: Message to display
+            direction: 'sent', 'received', or 'system'
+        """
+        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        
+        if direction == "sent":
+            formatted = f"{timestamp} → {message}"
+            self.ui.advConfigureOutputText.setTextColor(Qt.blue)
+        elif direction == "received":
+            formatted = f"{timestamp} ← {message}"
+            self.ui.advConfigureOutputText.setTextColor(Qt.darkGreen)
+        else:  # system
+            formatted = f"{timestamp} ● {message}"
+            self.ui.advConfigureOutputText.setTextColor(Qt.gray)
+        
+        self.ui.advConfigureOutputText.append(formatted)
         self.ui.advConfigureOutputText.setTextColor(Qt.black)
 
-    def log(self, message, is_response=False):
-        """Log device response without per-line timestamps"""
-        # Only add timestamp for system messages, not device responses
-        if not is_response:
-            timestamp = datetime.now().strftime("%H:%M:%S") + " "
-            self.ui.advConfigureOutputText.setTextColor(Qt.gray)
-            self.ui.advConfigureOutputText.append(f"{timestamp}● {message}")
-            self.ui.advConfigureOutputText.setTextColor(Qt.black)
-        else:
-            # Response from device - no timestamp, raw output
-            self.ui.advConfigureOutputText.setTextColor(Qt.darkGreen)
-            # Preserve device's intended line breaks
-            self.ui.advConfigureOutputText.textCursor().insertText(message)
-            # Add newline only if message doesn't end with one
-            if not message.endswith('\n'):
-                self.ui.advConfigureOutputText.append("")
-            self.ui.advConfigureOutputText.setTextColor(Qt.black)
+    def log_consolidated_response(self, data):
+        """Splits consolidated response into lines and logs each with timestamp"""
+        for line in data.splitlines():
+            if line.strip():
+                self.log(line, direction="received")
 
     def change_language(self, language_code):
         if language_code == "pl":
@@ -1240,11 +1240,11 @@ class MainWindow(QMainWindow):
             try:
                 self.debug_serial_conn.write(command.encode('utf-8'))
                 self.debug_serial_conn.flush()
-                self.log_command_sent(command)
+                self.log(command, direction="sent")
                 self.ui.advCommandText.clear()
                 
             except Exception as e:
-                self.log(f"Send error: {e}")
+                self.log(f"Send error: {e}", direction="system")
                 QMessageBox.critical(self, "Send Failed", str(e))
         else:
             QMessageBox.warning(self, "Not Connected", "No active serial connection.")
@@ -1264,16 +1264,17 @@ class MainWindow(QMainWindow):
     def start_serial_monitor(self):
         """Initialize and start the serial reader thread"""
         self.serial_reader_thread = SerialReaderThread(self.debug_serial_conn)
-        self.serial_reader_thread.data_received.connect(
-            lambda data: self.log(data, is_response=True)
+        self.serial_reader_thread.data_received.connect(self.log_consolidated_response)
+        self.serial_reader_thread.error_occurred.connect(
+            lambda msg: self.log(msg, direction="system")
         )
-        self.serial_reader_thread.error_occurred.connect(self.log)
         self.serial_reader_thread.connection_lost.connect(self.handle_connection_lost)
         self.serial_reader_thread.start()
+        self.log("Serial monitor started", direction="system")
 
     def handle_connection_lost(self):
         """Handle unexpected disconnection"""
-        self.log("Connection lost - device disconnected")
+        self.log("Connection lost - device disconnected", direction="system")
         
         if self.serial_reader_thread:
             self.serial_reader_thread.stop()
@@ -1285,7 +1286,7 @@ class MainWindow(QMainWindow):
         
         self.command_mode_active = False
         self.ui.advConnDbgCommand.setText("Connect")
-        QMessageBox.warning(self, "Connection Lost", "Serial connection was lost!")
+        QMessageBox.warning(self, "Connection Lost", "Serial connection was lost unexpectedly.")
 
     def closeEvent(self, event):
         if hasattr(self, 'timer') and self.timer:
@@ -1296,7 +1297,7 @@ class MainWindow(QMainWindow):
         
         if self.debug_serial_conn and self.debug_serial_conn.is_open:
             self.debug_serial_conn.close()
-            self.log("Debug connection closed on exit")
+            self.log("Debug connection closed on exit", direction="system")
 
         # ... rest of existing cleanup ...
         for attr_name in ['config_thread', 'command_thread']:

@@ -55,7 +55,7 @@ from src.loading_animation import LoadingAnimation
 
 
 class SerialReaderThread(QThread):
-    """Continuously reads from serial port and emits data signals"""
+    """Buffers serial data and emits consolidated messages during idle periods"""
     data_received = Signal(str)
     error_occurred = Signal(str)
     connection_lost = Signal()
@@ -64,6 +64,8 @@ class SerialReaderThread(QThread):
         super().__init__()
         self.serial_conn = serial_conn
         self._running = False
+        self.buffer = bytearray()
+        self.last_receive_time = 0
         self.mutex = QMutex()
         
     def run(self):
@@ -78,25 +80,31 @@ class SerialReaderThread(QThread):
             try:
                 if self.serial_conn and self.serial_conn.is_open:
                     if self.serial_conn.in_waiting > 0:
-                        data = self.serial_conn.read(self.serial_conn.in_waiting)
-                        if data:
-                            text = data.decode('utf-8', errors='replace')
-                            # Emit each line separately for better formatting
-                            for line in text.splitlines(True):
-                                self.data_received.emit(line)
-                    self.msleep(10)  # 10ms poll interval
-                else:
-                    self.msleep(100)
-                    
+                        chunk = self.serial_conn.read(self.serial_conn.in_waiting)
+                        if chunk:
+                            self.buffer.extend(chunk)
+                            self.last_receive_time = time.time()
+                    elif self.buffer and (time.time() - self.last_receive_time > 0.05):  # 50ms idle
+                        # Emit consolidated data when device pauses transmission
+                        text = self.buffer.decode('utf-8', errors='replace')
+                        self.data_received.emit(text)
+                        self.buffer.clear()
+                            
+                self.msleep(10)  # 10ms poll rate
             except Exception as e:
                 self.error_occurred.emit(f"Serial error: {e}")
                 self.connection_lost.emit()
                 break
     
     def stop(self):
-        """Safely stop the thread"""
+        """Safely stop the thread and flush remaining buffer"""
         with QMutexLocker(self.mutex):
             self._running = False
+            if self.buffer:
+                # Emit any remaining data
+                text = self.buffer.decode('utf-8', errors='replace')
+                self.data_received.emit(text)
+                self.buffer.clear()
         self.wait(1000)
 
 def resource_path(relative_path):
@@ -365,64 +373,49 @@ class MainWindow(QMainWindow):
             return
 
     def toggle_debug_connection(self):
-        """Toggle debug connection and serial monitoring"""
+        """Toggle debug connection with serial monitoring"""
         # DISCONNECTING
         if self.debug_serial_conn and self.debug_serial_conn.is_open:
-            # Stop reader thread first
             if self.serial_reader_thread:
                 self.serial_reader_thread.stop()
                 self.serial_reader_thread = None
             
-            # Close connection
             self.debug_serial_conn.close()
             self.debug_serial_conn = None
             self.command_mode_active = False
             self.ui.advConnDbgCommand.setText("Connect")
-            self.log("Debug connection closed", direction=None)
+            self.log("Debug connection closed")
             return
 
-        # Check device detection
+        # CONNECTING (existing validation code...)
         if not self.stican_detected:
             QMessageBox.warning(self, "No Device", "StiCAN device not detected.")
             return
 
-        # Get port
         port = self.ui.detectedPortLabel.text().replace("Port: ", "")
         if not port or "N/A" in port:
             QMessageBox.warning(self, "No Port", "No valid port available.")
             return
 
         try:
-            # Open serial connection
             conn = serial.Serial(port, 115200, timeout=1)
             
-            # For Windows (v3.0+ devices), enter command mode
             if self.SYSTEM == "win":
-                self.log("Sending 's' to enter command mode...", direction=None)
+                self.log("Sending 's' to enter command mode...")
                 conn.write(b"s")
-                
-                start_time = time.time()
-                response = ""
-                while time.time() - start_time < 5:
-                    chunk = conn.read(conn.in_waiting or 1).decode(errors='ignore')
-                    if chunk:
-                        response += chunk
-                        time.sleep(0.1)
-                        conn.read(conn.in_waiting)  
-                    time.sleep(0.1)
-                else:
-                    self.log("Warning: Command mode not confirmed, continuing anyway", direction=None)
+                time.sleep(0.1)  # Give device time to respond
+                conn.read(conn.in_waiting)  # Clear any immediate response
 
-            # Store connection
             self.debug_serial_conn = conn
             self.command_mode_active = True
             self.ui.advConnDbgCommand.setText("Disconnect")
-            self.log(f"Connected to {port}", direction=None)
+            
             self.start_serial_monitor()
+            self.log(f"Connected to {port} - monitoring started")
             
         except Exception as e:
             QMessageBox.critical(self, "Connection Error", f"Failed to connect: {e}")
-            self.log(f"Debug connection failed: {e}", direction=None)
+            self.log(f"Debug connection failed: {e}")
 
     def eventFilter(self, obj, event):
         """Intercept Enter key in advCommandText to send command"""
@@ -646,33 +639,31 @@ class MainWindow(QMainWindow):
             QCoreApplication.translate("MainWindow", "Configuration Successful"),
         )
 
-    def log(self, message, direction=None, timestamp=True):
-        """
-        Enhanced log with timestamps and direction indicators
-        
-        Args:
-            message: Message to display
-            direction: 'sent', 'received', or None (system)
-            timestamp: Include timestamp
-        """
-        if timestamp:
-            timestamp_str = datetime.now().strftime("%H:%M:%S.%f")[:-3] + " "
-        else:
-            timestamp_str = ""
-        
-        # Format based on direction
-        if direction == "sent":
-            formatted = f"{timestamp_str}→ {message}"
-            self.ui.advConfigureOutputText.setTextColor(Qt.blue)
-        elif direction == "received":
-            formatted = f"{timestamp_str}← {message}"
-            self.ui.advConfigureOutputText.setTextColor(Qt.darkGreen)
-        else:
-            formatted = f"{timestamp_str}● {message}"
+    def log_command_sent(self, command):
+        """Log sent command in VS Code Serial Monitor format"""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        header = f"---- Sent utf8 encoded message: \"{command}\" ----"
+        self.ui.advConfigureOutputText.setTextColor(Qt.blue)
+        self.ui.advConfigureOutputText.append(header)
+        self.ui.advConfigureOutputText.setTextColor(Qt.black)
+
+    def log(self, message, is_response=False):
+        """Log device response without per-line timestamps"""
+        # Only add timestamp for system messages, not device responses
+        if not is_response:
+            timestamp = datetime.now().strftime("%H:%M:%S") + " "
+            self.ui.advConfigureOutputText.setTextColor(Qt.gray)
+            self.ui.advConfigureOutputText.append(f"{timestamp}● {message}")
             self.ui.advConfigureOutputText.setTextColor(Qt.black)
-        
-        self.ui.advConfigureOutputText.append(formatted)
-        self.ui.advConfigureOutputText.setTextColor(Qt.black)  # Reset color
+        else:
+            # Response from device - no timestamp, raw output
+            self.ui.advConfigureOutputText.setTextColor(Qt.darkGreen)
+            # Preserve device's intended line breaks
+            self.ui.advConfigureOutputText.textCursor().insertText(message)
+            # Add newline only if message doesn't end with one
+            if not message.endswith('\n'):
+                self.ui.advConfigureOutputText.append("")
+            self.ui.advConfigureOutputText.setTextColor(Qt.black)
 
     def change_language(self, language_code):
         if language_code == "pl":
@@ -1240,61 +1231,49 @@ class MainWindow(QMainWindow):
             )
 
     def send_command(self):
-        """Send command through persistent connection"""
+        """Send command without line terminators"""
         command = self.ui.advCommandText.toPlainText().strip()
         if not command:
             return
 
         if self.debug_serial_conn and self.debug_serial_conn.is_open:
-            try:                
-                self.log(command.rstrip(), direction="sent", timestamp=True)
+            try:
                 self.debug_serial_conn.write(command.encode('utf-8'))
                 self.debug_serial_conn.flush()
-                
-                # Clear command box
+                self.log_command_sent(command)
                 self.ui.advCommandText.clear()
                 
             except Exception as e:
-                self.log(f"Send error: {e}", direction=None)
+                self.log(f"Send error: {e}")
                 QMessageBox.critical(self, "Send Failed", str(e))
         else:
             QMessageBox.warning(self, "Not Connected", "No active serial connection.")
 
     def setup_terminal_output(self):
-        """Configure terminal output for serial monitor experience"""
-        # Set monospaced font for alignment
+        """Configure terminal for serial monitor experience"""
         font = self.ui.advConfigureOutputText.font()
         font.setFamily("Courier New")
         font.setPointSize(9)
         self.ui.advConfigureOutputText.setFont(font)
-        
-        # Enable auto-scroll
         self.ui.advConfigureOutputText.textChanged.connect(self.auto_scroll_terminal)
 
     def auto_scroll_terminal(self):
-        """Auto-scroll to bottom when new text is added"""
         scrollbar = self.ui.advConfigureOutputText.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
 
     def start_serial_monitor(self):
-        """Start continuous serial monitoring after connection"""
-        if not self.debug_serial_conn or not self.debug_serial_conn.is_open:
-            return
-        
+        """Initialize and start the serial reader thread"""
         self.serial_reader_thread = SerialReaderThread(self.debug_serial_conn)
         self.serial_reader_thread.data_received.connect(
-            lambda data: self.log(data, direction="received", timestamp=True)
+            lambda data: self.log(data, is_response=True)
         )
-        self.serial_reader_thread.error_occurred.connect(
-            lambda msg: self.log(msg, direction=None)
-        )
+        self.serial_reader_thread.error_occurred.connect(self.log)
         self.serial_reader_thread.connection_lost.connect(self.handle_connection_lost)
         self.serial_reader_thread.start()
-        self.log("Serial monitor started", direction=None)
 
     def handle_connection_lost(self):
-        """Handle unexpected connection loss"""
-        self.log("Connection lost!", direction=None)
+        """Handle unexpected disconnection"""
+        self.log("Connection lost - device disconnected")
         
         if self.serial_reader_thread:
             self.serial_reader_thread.stop()
@@ -1306,21 +1285,20 @@ class MainWindow(QMainWindow):
         
         self.command_mode_active = False
         self.ui.advConnDbgCommand.setText("Connect")
-        QMessageBox.warning(self, "Connection Lost", "The serial connection was lost unexpectedly.")
+        QMessageBox.warning(self, "Connection Lost", "Serial connection was lost!")
 
     def closeEvent(self, event):
-        # Stop serial reader thread
-        if hasattr(self, 'serial_reader_thread') and self.serial_reader_thread:
-            self.serial_reader_thread.stop()
-        
-        if hasattr(self, 'timer') and self.timer is not None:
+        if hasattr(self, 'timer') and self.timer:
             self.timer.stop()
 
-        debug_conn = getattr(self, 'debug_serial_conn', None)
-        if debug_conn and debug_conn.is_open:
-            debug_conn.close()
-            self.log("Persistent debug connection closed on exit")
+        if self.serial_reader_thread:
+            self.serial_reader_thread.stop()
+        
+        if self.debug_serial_conn and self.debug_serial_conn.is_open:
+            self.debug_serial_conn.close()
+            self.log("Debug connection closed on exit")
 
+        # ... rest of existing cleanup ...
         for attr_name in ['config_thread', 'command_thread']:
             thread = getattr(self, attr_name, None)
             if thread is not None:

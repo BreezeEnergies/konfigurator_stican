@@ -119,7 +119,7 @@ def resource_path(relative_path):
 
 ANIMATION_FILES = [resource_path("loading-snake-io.gif")]
 
-APPLICATION_VERSION = "1.2.5"
+APPLICATION_VERSION = "1.2.6"
 APPLICATION_AUTHORS = ["Maciej Hejlasz <DeimosMH>", ""]
 APPLICATION_OWNERS = "Breeze Energies Sp. z o.o."
 

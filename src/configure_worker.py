@@ -692,19 +692,19 @@ class ConfigureWorker(QObject):
                 b"reboot"
             )  # necessary for proper scan after configuration
             time.sleep(3)
-
+            
         attempt = 0
-        while attempt < max_retries:
+        while attempt < max_retries and attempt < 6:
             not_found_batteries.clear()
             self.log.emit(
                 f"\nVerifying battery detection... (attempt {attempt + 1}/{max_retries})"
             )
 
-            os_name = QSysInfo.productType()
-            if "win" in os_name.lower() and attempt == 2:
-                self.log.emit("Win - s")
-                self.serial_connection.write(b"s")
-                time.sleep(7)
+            # os_name = QSysInfo.productType()
+            # if "win" in os_name.lower() and attempt > 3 and attempt <= 5:
+            #     self.log.emit("Win - s")
+            #     self.serial_connection.write(b"s")
+            #     time.sleep(7)
 
             # --- send command (no line ending) -----------------------------
             time.sleep(2)
@@ -733,22 +733,17 @@ class ConfigureWorker(QObject):
                     if ABORT in line and not all(
                         r in allBatConn for r in self.devices[1:]
                     ):
-                        if "win" in os_name.lower():
-                            self.serial_connection.write(b"scan")
-                            time.sleep(2)
-
-                        self.log.emit("'-U-' detected - pause 1 s")
+                        self.log.emit("'-U-' detected - pause 3 s")
                         max_retries += 1  
-                        time.sleep(1)
+                        time.sleep(3)
                         break
 
                     if (ABORT_b in line or ABORT_c in line) and not all(
                         r in allBatConn for r in self.devices[1:]
                     ):
-                        if "win" in os_name.lower():
-                            self.serial_connection.write(b"s")  
-                            time.sleep(2)
-                            # self.serial_connection.write(b"scan") # The loop does it
+                        self.serial_connection.write(b"s")  
+                        time.sleep(3)
+                        # self.serial_connection.write(b"scan") # The loop does it
 
                         self.log.emit("'SW_CPU_RESET' detected - Waiting 5s for reboot...")
                         

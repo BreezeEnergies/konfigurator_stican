@@ -54,7 +54,7 @@ pip install --upgrade pip
 `~` is `/home/$USER` in Ubuntu
 
 ```sh
-pyinstaller .\mainwindow.spec
+pyinstaller ./mainwindow.spec
 ```
 
 ### Windows

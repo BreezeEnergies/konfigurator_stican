@@ -452,7 +452,7 @@ class MainWindow(QMainWindow):
             if self.SYSTEM == "win":
                 self.log("Sending 's' to enter command mode...", direction="system")
                 conn.write(b"s")
-                time.sleep(0.1)
+                time.sleep(2)
                 conn.read(conn.in_waiting)
 
             self.debug_serial_conn = conn

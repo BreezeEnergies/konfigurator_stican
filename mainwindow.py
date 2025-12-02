@@ -791,7 +791,7 @@ class MainWindow(QMainWindow):
                 )
 
             # Re-enable buttons
-            self.ui.advConnDbgCommand.setEnabled(False)
+            self.ui.advConnDbgCommand.setEnabled(True)
             self.ui.configureSticanButton.setEnabled(True)
             self.ui.addBatteryButton.setEnabled(True)
 

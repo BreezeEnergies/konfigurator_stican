@@ -3,10 +3,10 @@
 
 a = Analysis(
     ['mainwindow.py'],
-    pathex=[],
+    pathex=['src'],
     binaries=[],
     datas=[('loading-snake-io.gif', '.'), ('form_pl.qm', '.'), ('form_en.qm', '.')],
-    hiddenimports=['PySide6.QtCore', 'PySide6.QtGui', 'PySide6.QtWidgets'],
+    hiddenimports=[],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -22,7 +22,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='mainwindow',
+    name='StiCAN_Configurator',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

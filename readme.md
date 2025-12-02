@@ -54,7 +54,7 @@ pip install --upgrade pip
 `~` is `/home/$USER` in Ubuntu
 
 ```sh
-pyinstaller --onefile --windowed --icon=icon.ico --hidden-import PySide6.QtCore --hidden-import PySide6.QtGui --hidden-import PySide6.QtWidgets --add-data "loading-snake-io.gif:." --add-data "form_pl.qm:." --add-data "form_en.qm:." mainwindow.py
+pyinstaller .\mainwindow.spec
 ```
 
 ### Windows
@@ -69,6 +69,8 @@ cd <this project directory>
 
 python3.13 -m venv qtcreator_Python_3_13_2venv
 qtcreator_Python_3_13_2venv\Scripts\activate
+
+# could give error with cmd with path and command to update
 pip install --upgrade pip
 ```
 
@@ -87,5 +89,5 @@ pip install winrt-Windows.Storage.Streams
 ```
 
 ```sh
-pyinstaller --onefile --windowed --icon=icon.ico   --hidden-import serial   --hidden-import PySide6.QtCore   --hidden-import PySide6.QtGui   --hidden-import PySide6.QtWidgets   --hidden-import winrt.windows.foundation   --hidden-import winrt.windows.foundation.collections   --add-data "loading-snake-io.gif;."   --add-data "form_pl.qm;."   --add-data "form_en.qm;."   --add-data "windrivers\slabvcp.inf;."   --add-data "windrivers\slabvcp.cat;."   --add-data "windrivers\dpinst.xml;."   --add-data "windrivers\CP210xVCPInstaller_x64.exe;."   --add-data "windrivers\silabser.sys;."   --add-data "windrivers\WdfCoInstaller01009.dll;."   --add-data "windrivers\WdfCoInstaller01011.dll;."   --add-data "windrivers\SLAB_License_Agreement_VCP_Windows.txt;."   mainwindow.py
+pyinstaller .\mainwindow_windows.spec
 ```

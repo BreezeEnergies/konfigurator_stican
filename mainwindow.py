@@ -382,7 +382,7 @@ class MainWindow(QMainWindow):
             self.debug_serial_conn.close()
             self.debug_serial_conn = None
             self.command_mode_active = False
-            self.ui.advConnDbgCommand.setText("Connect")
+            self.ui.advConnDbgCommand.setText(QCoreApplication.translate("Connect"))
             self.log("Debug connection closed", direction="system")
             return
 
@@ -406,7 +406,8 @@ class MainWindow(QMainWindow):
 
             self.debug_serial_conn = conn
             self.command_mode_active = True
-            self.ui.advConnDbgCommand.setText("Disconnect")
+
+            self.ui.advConnDbgCommand.setText(QCoreApplication.translate("Disconnect"))
             self.log(f"Connected to {port}", direction="system")
             self.start_serial_monitor()
             

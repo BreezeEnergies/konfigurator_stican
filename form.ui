@@ -24,7 +24,7 @@
     <item>
      <widget class="QTabWidget" name="tabWidget">
       <property name="currentIndex">
-       <number>0</number>
+       <number>1</number>
       </property>
       <widget class="QWidget" name="configurationTab">
        <attribute name="title">
@@ -263,6 +263,9 @@
               <width>100</width>
               <height>30</height>
              </size>
+            </property>
+            <property name="mouseTracking">
+             <bool>false</bool>
             </property>
             <property name="html">
              <string>&lt;!DOCTYPE HTML PUBLIC &quot;-//W3C//DTD HTML 4.0//EN&quot; &quot;http://www.w3.org/TR/REC-html40/strict.dtd&quot;&gt;

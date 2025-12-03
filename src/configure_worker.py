@@ -811,7 +811,7 @@ class ConfigureWorker(QObject):
             self.log.emit("CONFIGURATION RESULT: FAIL")
             self.devices_not_found.emit(not_found_batteries)
             self.progress.emit(step_index, "FAIL")
-            self.error.emit("Error: Not all devices were detected.")
+            # self.error.emit("Error: Not all devices were detected.")
             self.finished.emit()
 
     def run(self):

@@ -119,7 +119,7 @@ def resource_path(relative_path):
 
 ANIMATION_FILES = [resource_path("loading-snake-io.gif")]
 
-APPLICATION_VERSION = "1.2.6"
+APPLICATION_VERSION = "1.2.7"
 APPLICATION_AUTHORS = ["Maciej Hejlasz <DeimosMH>", ""]
 APPLICATION_OWNERS = "Breeze Energies Sp. z o.o."
 
@@ -425,11 +425,43 @@ class MainWindow(QMainWindow):
         self.log(f"advConnDbgCommand text = {self.ui.advConnDbgCommand.text()}")
         self.log(f"detectedPortLabel text = {self.ui.detectedPortLabel.text()}")
         
+        # === FORCE KILL ANY ACTIVE THREADS/CONNECTIONS FROM 'CONFIGURE' BUTTON ===
+        # This ensures the serial port is released before opening debug connection
+                
+        # Handle configuration thread
+        if hasattr(self, 'thread') and self.thread is not None:
+            try:
+                if self.thread.isRunning():
+                    self.log("WARNING: Configuration thread still active for Configure button - terminating...")
+                    self.thread.terminate()  # Force kill (worker is likely blocked on serial I/O)
+                    self.thread.wait()
+                    self.log("Configuration thread terminated")
+                self.worker = None
+                self.thread = None
+            except RuntimeError:
+                # C++ object already deleted
+                self.log("NOTE: Configuration thread object was already deleted")
+                self.worker = None
+                self.thread = None
+
+        # Handle command thread
+        if hasattr(self, 'command_thread') and self.command_thread is not None:
+            try:
+                if self.command_thread.isRunning():
+                    self.log("WARNING: Command thread still active - terminating...")
+                    self.command_thread.terminate()
+                    self.command_thread.wait()
+                    self.log("Command thread terminated")
+                self.command_worker = None
+                self.command_thread = None
+            except RuntimeError:
+                # C++ object already deleted
+                self.log("NOTE: Command thread object was already deleted")
+                self.command_worker = None
+                self.command_thread = None
+
+        # === EXISTING CODE TO TOGGLE DEBUG CONNECTION ===
         if self.debug_serial_conn and self.debug_serial_conn.is_open:
-            if self.serial_reader_thread:
-                self.serial_reader_thread.stop()
-                self.serial_reader_thread = None
-            
             self.debug_serial_conn.close()
             self.debug_serial_conn = None
             self.command_mode_active = False
@@ -449,11 +481,11 @@ class MainWindow(QMainWindow):
         try:
             conn = serial.Serial(port, 115200, timeout=1)
             
-            if self.SYSTEM == "win":
-                self.log("Sending 's' to enter command mode...", direction="system")
-                conn.write(b"s")
-                time.sleep(2)
-                conn.read(conn.in_waiting)
+            # if self.SYSTEM == "win":
+            #     self.log("Sending 's' to enter command mode...", direction="system")
+            #     conn.write(b"s")
+            #     time.sleep(2)
+            #     conn.read(conn.in_waiting)
 
             self.debug_serial_conn = conn
             self.command_mode_active = True
@@ -461,6 +493,11 @@ class MainWindow(QMainWindow):
             self.ui.advConnDbgCommand.setText(QCoreApplication.translate("MainWindow","Disconnect"))
             self.log(f"Connected to {port}", direction="system")
             self.start_serial_monitor()
+
+            self.debug_serial_conn.write(b's')
+            self.debug_serial_conn.flush()
+            self.log("Sending 's' to enter command mode...", direction="system")
+            self.ui.advCommandText.clear()
             
         except Exception as e:
             import traceback
@@ -1070,6 +1107,20 @@ class MainWindow(QMainWindow):
         self.timer.start(500)  # Check every 0.5 seconds
 
     def start_configuration(self, devices, port):
+        # Add this debug block
+        print(f"DEBUG: self.thread = {self.thread}")
+        print(f"DEBUG: type(self.thread) = {type(self.thread)}")
+        print(f"DEBUG: hasattr(self, 'thread') = {hasattr(self, 'thread')}")
+        
+        import inspect
+        if inspect.ismethod(self.thread):
+            print("ERROR: self.thread is a method, not QThread!")
+            print(f"Method signature: {inspect.signature(self.thread)}")
+
+        # # for thread auto-cleanup - need to rename thread attributes to avoid collision
+        # self.thread.finished.connect(lambda: setattr(self, 'thread', None))
+        # self.thread.finished.connect(lambda: setattr(self, 'worker', None))
+
         # Stop the timer to deactivate detect_stican
         self.timer.stop()
 
@@ -1234,8 +1285,13 @@ class MainWindow(QMainWindow):
         row_widget = QWidget()
         row_widget.setLayout(row_layout)
 
-        # Add the row widget to the battery layout
-        self.ui.batteryLayout.addWidget(row_widget)
+        # # Add the row widget to the battery layout
+        # self.ui.batteryLayout.addWidget(row_widget)
+        # Add the row widget to the battery layout (from top)
+        if is_first_row:
+            self.ui.batteryLayout.addWidget(row_widget)  # Header row
+        else:
+            self.ui.batteryLayout.insertWidget(1, row_widget)
 
         # Create a reference to the row's serial and pin inputs
         row_data = {
